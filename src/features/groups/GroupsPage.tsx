@@ -793,70 +793,91 @@ function EditGroupExpenseForm({ group, expense, categories, onClose, onSave }: {
     })
   }
 
+  const currencySymbol = CURRENCIES.find(c => c.code === group.currency)?.symbol ?? group.currency[0]
+
   return (
     <div className="flex flex-col">
-      {/* ─── Sticky top: amount + description ─── */}
+
+      {/* ─── Sticky header: matches ExpenseForm group mode ─── */}
       <div className="sticky top-0 z-10 border-b border-ui" style={{ background: 'var(--bg-card)' }}>
-        <div className="px-4 pt-3 pb-2 text-center" style={{ background: 'linear-gradient(160deg,#2a1860,#16123a)' }}>
+        <div className="px-4 pt-3 pb-1 text-center" style={{ background: 'linear-gradient(160deg,#2a1860,#16123a)' }}>
           <p className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: 'rgba(200,195,240,0.5)' }}>
-            Edit · {group.currency}
+            {group.currency} · {group.name}
           </p>
-          <div className="flex items-center justify-center py-1">
+          <div className="flex items-center justify-center gap-1 py-1">
+            <span className="text-4xl font-bold" style={{ color: 'rgba(200,195,240,0.5)' }}>{currencySymbol}</span>
             <input
-              type="number" inputMode="decimal" value={amount}
+              type="number" inputMode="decimal" placeholder="0"
+              step="0.01" min="0" autoFocus
+              value={amount}
               onChange={e => setAmount(e.target.value)}
-              className="text-4xl font-bold bg-transparent outline-none text-center w-48"
-              style={{ color: '#f0eeff' }}
-              autoFocus
+              className="bg-transparent text-5xl font-bold outline-none placeholder:text-3 text-center w-[180px]"
+              style={{ maxWidth: 'calc(100% - 56px)', minWidth: 80, color: '#f0eeff' }}
             />
           </div>
         </div>
-        <div className="px-4 py-3">
+        <div className="px-4 pb-3 pt-2">
           <input
             className="w-full bg-transparent text-sm text-center text-1 outline-none placeholder:text-3"
-            placeholder="e.g. Dinner, Taxi…"
+            placeholder="e.g. Dinner, Hotel, Taxi…"
             value={description}
             onChange={e => setDescription(e.target.value)}
           />
         </div>
       </div>
 
+      {/* ─── Scrollable body ─── */}
       <div className="px-4 pt-4 flex flex-col gap-4 pb-6">
-        {/* Category */}
-        <div>
-          <p className="text-xs font-bold text-3 uppercase tracking-wider mb-2">Category</p>
-          <div className="grid grid-cols-4 gap-2">
-            {expenseCategories.slice(0, 8).map(c => (
-              <button key={c.id} onClick={() => setCategoryId(c.id)}
-                className="flex flex-col items-center gap-1 p-2 rounded-xl tap"
-                style={categoryId === c.id
-                  ? { background: `${c.color}25`, border: `1.5px solid ${c.color}60` }
-                  : { background: 'var(--bg-card2)', border: '1.5px solid transparent' }}>
-                <span className="text-xl">{c.icon}</span>
-                <span className="text-[10px] font-semibold truncate w-full text-center"
-                  style={{ color: categoryId === c.id ? c.color : 'var(--text-3)' }}>
-                  {c.name.split(' ')[0]}
-                </span>
-              </button>
-            ))}
-          </div>
+
+        {/* Category — horizontal scroll, same as ExpenseForm */}
+        <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+          {expenseCategories.map(c => (
+            <button key={c.id} onClick={() => setCategoryId(c.id)}
+              className={cn('flex flex-col items-center gap-1.5 pt-2.5 pb-2 px-3 rounded-2xl shrink-0 tap transition-all', categoryId === c.id ? '' : 'bg-card2')}
+              style={categoryId === c.id
+                ? { background: `${c.color}18`, outline: `1.5px solid ${c.color}55`, minWidth: 64 }
+                : { minWidth: 64 }}>
+              <span className="text-2xl leading-none">{c.icon}</span>
+              <span className="text-[10px] font-semibold text-2 truncate"
+                style={{ maxWidth: 56, color: categoryId === c.id ? c.color : undefined }}>
+                {c.name.split(' ')[0]}
+              </span>
+            </button>
+          ))}
         </div>
 
-        {/* Paid by */}
+        {/* Date — hidden input trick so no keyboard opens */}
+        <label
+          className="flex items-center gap-2 px-3 py-2.5 rounded-2xl cursor-pointer relative"
+          style={{ background: 'var(--bg-card2)', border: '1px solid var(--border)', overflow: 'hidden' }}
+        >
+          <span className="text-sm shrink-0">📅</span>
+          <span className="text-xs text-1 truncate flex-1 font-medium">
+            {date ? format(new Date(date), 'MMM d, yyyy · h:mm a') : 'Set date'}
+          </span>
+          <input
+            type="datetime-local" value={date} onChange={e => setDate(e.target.value)}
+            className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+            style={{ colorScheme: 'dark' }}
+          />
+        </label>
+
+        {/* Who paid */}
         <div>
-          <p className="text-xs font-bold text-3 uppercase tracking-wider mb-2">Paid by</p>
+          <p className="text-[10px] font-bold text-3 uppercase tracking-wider mb-2">Who paid?</p>
           <div className="flex gap-2 flex-wrap">
             {group.members.map(m => (
               <button key={m.id} onClick={() => setPaidBy(m.id)}
-                className="flex items-center gap-2 px-3 py-2 rounded-xl tap"
+                className="flex items-center gap-2 px-3 py-2 rounded-xl tap transition-all"
                 style={paidBy === m.id
                   ? { background: `${m.avatarColor}25`, border: `1.5px solid ${m.avatarColor}60` }
-                  : { background: 'var(--bg-card2)', border: '1.5px solid transparent' }}>
-                <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white"
+                  : { background: 'var(--bg-card2)', border: '1.5px solid var(--border)' }}>
+                <div className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white shrink-0"
                   style={{ backgroundColor: m.avatarColor }}>
                   {m.name[0].toUpperCase()}
                 </div>
-                <span className="text-xs font-semibold" style={{ color: paidBy === m.id ? m.avatarColor : 'var(--text-2)' }}>
+                <span className="text-xs font-semibold"
+                  style={{ color: paidBy === m.id ? m.avatarColor : 'var(--text-2)' }}>
                   {m.name}
                 </span>
               </button>
@@ -864,37 +885,40 @@ function EditGroupExpenseForm({ group, expense, categories, onClose, onSave }: {
           </div>
         </div>
 
-        {/* Splits — editable + add member */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-xs font-bold text-3 uppercase tracking-wider">Splits</p>
+        {/* Splits */}
+        <div className="rounded-2xl overflow-hidden" style={{ background: 'var(--bg-card2)', border: '1px solid var(--border)' }}>
+          <div className="flex items-center justify-between px-3 py-2.5 border-b border-ui">
+            <p className="text-[10px] font-bold text-3 uppercase tracking-wider">Splits</p>
             <button onClick={redistributeEqual} className="text-[11px] font-semibold tap" style={{ color: 'var(--brand)' }}>
               ⚖ Redistribute equally
             </button>
           </div>
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col divide-y divide-ui">
             {splits.map((split, i) => {
               const member = group.members.find(m => m.id === split.memberId)
               return (
-                <div key={split.memberId} className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
+                <div key={split.memberId} className="flex items-center gap-3 px-3 py-2.5">
+                  <div className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
                     style={{ backgroundColor: member?.avatarColor ?? '#7c5cfc' }}>
                     {member?.name[0].toUpperCase() ?? '?'}
                   </div>
                   <span className="text-sm font-medium text-1 flex-1 truncate">{member?.name ?? 'Unknown'}</span>
-                  {split.settled ? (
-                    <span className="text-[10px] font-semibold px-2 py-1 rounded-lg mr-1" style={{ background: 'rgba(0,200,150,0.12)', color: '#00c896' }}>✓ Settled</span>
-                  ) : null}
+                  {split.settled && (
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-lg"
+                      style={{ background: 'rgba(0,200,150,0.12)', color: '#00c896' }}>✓ Settled</span>
+                  )}
                   <input
                     type="number" inputMode="decimal"
                     value={split.amountStr}
-                    onChange={e => setSplits(prev => prev.map((s, j) => j === i ? { ...s, amountStr: e.target.value, amount: parseFloat(e.target.value) || 0 } : s))}
+                    onChange={e => setSplits(prev => prev.map((s, j) => j === i
+                      ? { ...s, amountStr: e.target.value, amount: parseFloat(e.target.value) || 0 }
+                      : s))}
                     className="input w-24 text-right text-sm"
                     disabled={split.settled}
                   />
                   {!split.settled && (
                     <button onClick={() => setSplits(prev => prev.filter((_, j) => j !== i))}
-                      className="tap" style={{ color: 'rgba(255,107,107,0.6)' }}>
+                      className="tap shrink-0" style={{ color: 'rgba(255,107,107,0.6)' }}>
                       <X size={14} />
                     </button>
                   )}
@@ -902,17 +926,15 @@ function EditGroupExpenseForm({ group, expense, categories, onClose, onSave }: {
               )
             })}
           </div>
-
-          {/* Add member to this expense */}
           {membersNotInSplits.length > 0 && (
-            <div className="mt-3">
-              <p className="text-[10px] font-semibold text-3 uppercase tracking-wider mb-2">Add member to this expense</p>
+            <div className="px-3 pb-3 pt-2 border-t border-ui">
+              <p className="text-[10px] font-semibold text-3 uppercase tracking-wider mb-2">Add to split</p>
               <div className="flex gap-2 flex-wrap">
                 {membersNotInSplits.map(m => (
                   <button key={m.id} onClick={() => addSplitMember(m.id)}
                     className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl tap"
                     style={{ background: `${m.avatarColor}15`, border: `1px solid ${m.avatarColor}40` }}>
-                    <div className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white"
+                    <div className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white"
                       style={{ backgroundColor: m.avatarColor }}>
                       {m.name[0].toUpperCase()}
                     </div>
@@ -924,18 +946,26 @@ function EditGroupExpenseForm({ group, expense, categories, onClose, onSave }: {
           )}
         </div>
 
-        {/* Date */}
-        <div>
-          <p className="text-xs font-bold text-3 uppercase tracking-wider mb-1.5">Date & Time</p>
-          <input type="datetime-local" className="input text-xs" value={date} onChange={e => setDate(e.target.value)} />
+        {/* Notes */}
+        <div className="flex items-center gap-2 px-3 py-2.5 rounded-2xl"
+          style={{ background: 'var(--bg-card2)', border: '1px solid var(--border)' }}>
+          <span className="text-sm shrink-0">📝</span>
+          <input
+            className="flex-1 bg-transparent text-sm text-1 outline-none placeholder:text-3"
+            placeholder="Add a note… (optional)"
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
+          />
         </div>
 
-        <Input label="Notes (optional)" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Add a note…" />
-
-        <div className="flex gap-3 pb-2">
-          <Button variant="ghost" onClick={onClose} className="flex-1">Cancel</Button>
-          <Button onClick={handleSave} loading={loading} className="flex-1">Save Changes</Button>
-        </div>
+        {/* Save */}
+        <button
+          className="w-full py-4 rounded-2xl text-base font-bold text-white tap transition-all mt-1"
+          style={{ background: 'linear-gradient(135deg, #7c5cfc, #a855f7)', boxShadow: '0 6px 20px rgba(124,92,252,0.3)', opacity: loading ? 0.7 : 1 }}
+          onClick={handleSave} disabled={loading}>
+          {loading ? 'Saving…' : 'Save Changes'}
+        </button>
+        <button className="text-sm text-3 tap text-center py-1" onClick={onClose}>Cancel</button>
       </div>
     </div>
   )
