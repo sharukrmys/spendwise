@@ -1,5 +1,5 @@
 import { db } from './schema'
-import type { Expense, Category, Tag, Budget, Group, GroupExpense } from '@/core/types'
+import type { Expense, Category, Tag, Budget, Group, GroupExpense, Task } from '@/core/types'
 import { generateId } from '@/core/utils'
 
 // ─── Expenses ───────────────────────────────────────────────────────
@@ -160,24 +160,57 @@ export const groupExpenseQueries = {
   },
 }
 
+// ─── Tasks ──────────────────────────────────────────────────────────
+export const taskQueries = {
+  async getAll(): Promise<Task[]> {
+    return db.tasks.orderBy('createdAt').reverse().toArray()
+  },
+
+  async add(data: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>): Promise<Task> {
+    const now = Date.now()
+    const task: Task = { ...data, id: generateId(), createdAt: now, updatedAt: now }
+    await db.tasks.add(task)
+    return task
+  },
+
+  async update(id: string, data: Partial<Task>): Promise<void> {
+    await db.tasks.update(id, { ...data, updatedAt: Date.now() })
+  },
+
+  async delete(id: string): Promise<void> {
+    await db.tasks.delete(id)
+  },
+
+  async toggleItem(taskId: string, itemId: string): Promise<void> {
+    const task = await db.tasks.get(taskId)
+    if (!task?.items) return
+    const items = task.items.map(i =>
+      i.id === itemId ? { ...i, checked: !i.checked } : i
+    )
+    await db.tasks.update(taskId, { items, updatedAt: Date.now() })
+  },
+}
+
 // ─── Export / Import ────────────────────────────────────────────────
 type BackupData = {
   version: number; exportedAt: number
   expenses: Expense[]; categories: Category[]; tags: Tag[]
   budgets: Budget[]; groups: Group[]; groupExpenses: GroupExpense[]
+  tasks: Task[]
 }
 
 export const backupQueries = {
   async exportAll(): Promise<BackupData> {
-    const [expenses, categories, tags, budgets, groups, groupExpenses] = await Promise.all([
+    const [expenses, categories, tags, budgets, groups, groupExpenses, tasks] = await Promise.all([
       db.expenses.toArray(),
       db.categories.toArray(),
       db.tags.toArray(),
       db.budgets.toArray(),
       db.groups.toArray(),
       db.groupExpenses.toArray(),
+      db.tasks.toArray(),
     ])
-    return { version: 1, exportedAt: Date.now(), expenses, categories, tags, budgets, groups, groupExpenses }
+    return { version: 2, exportedAt: Date.now(), expenses, categories, tags, budgets, groups, groupExpenses, tasks }
   },
 
   /**
@@ -187,7 +220,7 @@ export const backupQueries = {
    * Use this for all sync flows (login, smart-sync) to prevent data loss.
    */
   async mergeAll(data: BackupData): Promise<void> {
-    await db.transaction('rw', [db.expenses, db.categories, db.tags, db.budgets, db.groups, db.groupExpenses], async () => {
+    await db.transaction('rw', [db.expenses, db.categories, db.tags, db.budgets, db.groups, db.groupExpenses, db.tasks], async () => {
       // Expenses: union by ID, newest updatedAt wins
       const localExpenses = await db.expenses.toArray()
       const expMap = new Map(localExpenses.map(e => [e.id, e]))
@@ -226,6 +259,15 @@ export const backupQueries = {
         if (!cur || incTs >= curTs) geMap.set(inc.id, inc)
       }
       await db.groupExpenses.bulkPut(Array.from(geMap.values()))
+
+      // Tasks: union by ID, newest updatedAt wins
+      const localTasks = await db.tasks.toArray()
+      const taskMap = new Map(localTasks.map(t => [t.id, t]))
+      for (const inc of (data.tasks ?? [])) {
+        const cur = taskMap.get(inc.id)
+        if (!cur || inc.updatedAt >= cur.updatedAt) taskMap.set(inc.id, inc)
+      }
+      await db.tasks.bulkPut(Array.from(taskMap.values()))
     })
   },
 
@@ -234,10 +276,10 @@ export const backupQueries = {
    * Only use for explicit "Restore from Drive" action — never for auto-sync.
    */
   async importAll(data: BackupData): Promise<void> {
-    await db.transaction('rw', [db.expenses, db.categories, db.tags, db.budgets, db.groups, db.groupExpenses], async () => {
+    await db.transaction('rw', [db.expenses, db.categories, db.tags, db.budgets, db.groups, db.groupExpenses, db.tasks], async () => {
       await Promise.all([
         db.expenses.clear(), db.tags.clear(), db.budgets.clear(),
-        db.groups.clear(), db.groupExpenses.clear(),
+        db.groups.clear(), db.groupExpenses.clear(), db.tasks.clear(),
       ])
       // Keep default categories, merge custom ones
       const customCats = data.categories.filter((c: Category) => !c.isDefault)
@@ -247,6 +289,7 @@ export const backupQueries = {
       await db.budgets.bulkPut(data.budgets)
       await db.groups.bulkPut(data.groups)
       await db.groupExpenses.bulkPut(data.groupExpenses)
+      if (data.tasks?.length) await db.tasks.bulkPut(data.tasks)
     })
   },
 }

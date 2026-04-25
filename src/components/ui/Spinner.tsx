@@ -22,5 +22,36 @@ export function PageSpinner() {
 }
 
 export function SkeletonLine({ width = '100%', height = 16 }: { width?: string | number; height?: number }) {
-  return <div className="skeleton" style={{ width, height, borderRadius: height / 2 }} />
+  return <div className="shimmer" style={{ width, height, borderRadius: height / 2 }} />
+}
+
+// ─── Skeleton page fallback for lazy routes ─────────────────────────
+function SkeletonCard({ rows = 3 }: { rows?: number }) {
+  return (
+    <div className="card p-4 flex flex-col gap-3">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3">
+          <div className="shimmer w-10 h-10 rounded-2xl shrink-0" />
+          <div className="flex-1 flex flex-col gap-2">
+            <div className="shimmer h-3 rounded-full" style={{ width: `${60 + (i * 15) % 30}%` }} />
+            <div className="shimmer h-2.5 rounded-full" style={{ width: `${40 + (i * 10) % 20}%` }} />
+          </div>
+          <div className="shimmer h-4 rounded-full w-14 shrink-0" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export function PageSkeleton() {
+  return (
+    <div className="flex flex-col min-h-full bg-base">
+      <div className="shimmer h-44 w-full" style={{ borderRadius: 0 }} />
+      <div className="px-4 py-4 flex flex-col gap-4">
+        <SkeletonCard rows={2} />
+        <SkeletonCard rows={4} />
+        <SkeletonCard rows={3} />
+      </div>
+    </div>
+  )
 }

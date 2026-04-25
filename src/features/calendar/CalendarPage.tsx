@@ -3,13 +3,14 @@ import {
   format, isSameDay, isToday, startOfMonth, endOfMonth, eachDayOfInterval,
   startOfWeek, endOfWeek, isSameMonth, addWeeks, subWeeks, addDays, isThisWeek,
 } from 'date-fns'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, CheckSquare, Square, ShoppingCart, ListTodo } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { ExpenseItem } from '@/features/expenses/ExpenseItem'
 import { useSettingsStore } from '@/store/useSettingsStore'
+import { useTaskStore } from '@/store/useTaskStore'
 import { expenseQueries } from '@/db/queries'
 import { formatCurrency, buildDailyHeatmap, cn } from '@/core/utils'
-import type { Expense } from '@/core/types'
+import type { Expense, Task } from '@/core/types'
 
 type CalView = 'month' | 'week'
 
@@ -23,8 +24,26 @@ export function CalendarPage() {
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [selectedDay, setSelectedDay] = useState<Date | null>(null)
   const [dayExpenses, setDayExpenses] = useState<Expense[]>([])
+  const [dayTasks, setDayTasks] = useState<Task[]>([])
   const [dayModalOpen, setDayModalOpen] = useState(false)
+  const [dayModalTab, setDayModalTab] = useState<'expenses' | 'tasks'>('expenses')
   const [weekSelectedDay, setWeekSelectedDay] = useState<Date | null>(null)
+
+  const { tasks, load: loadTasks, markDone, toggleItem } = useTaskStore()
+
+  useEffect(() => { loadTasks() }, [])
+
+  // Build task due-date map: 'yyyy-MM-dd' → count
+  const taskDateMap = useMemo(() => {
+    const map: Record<string, number> = {}
+    tasks.forEach(t => {
+      if (t.status === 'pending' && t.dueDate) {
+        const key = format(new Date(t.dueDate), 'yyyy-MM-dd')
+        map[key] = (map[key] ?? 0) + 1
+      }
+    })
+    return map
+  }, [tasks])
 
   // Load expenses based on view
   useEffect(() => {
@@ -71,10 +90,12 @@ export function CalendarPage() {
     if (!isSameMonth(day, currentDate)) return
     const dayStr = format(day, 'yyyy-MM-dd')
     const amount = heatmap[dayStr] ?? 0
-    if (amount === 0 && !isToday(day)) return
+    const taskCount = taskDateMap[dayStr] ?? 0
+    if (amount === 0 && !isToday(day) && taskCount === 0) return
     setSelectedDay(day)
-    const filtered = expenses.filter(e => isSameDay(new Date(e.date), day))
-    setDayExpenses(filtered)
+    setDayExpenses(expenses.filter(e => isSameDay(new Date(e.date), day)))
+    setDayTasks(tasks.filter(t => t.dueDate && isSameDay(new Date(t.dueDate), day)))
+    setDayModalTab('expenses')
     setDayModalOpen(true)
   }
 
@@ -210,7 +231,12 @@ export function CalendarPage() {
                       <span className={cn('text-xs font-semibold leading-tight', todayDay ? 'text-brand' : amount > 0 ? 'text-white' : 'text-2')}>
                         {format(day, 'd')}
                       </span>
-                      {amount > 0 && inMonth && <div className="w-1 h-1 rounded-full bg-white/60 mt-0.5" />}
+                      <div className="flex gap-0.5 mt-0.5 items-center justify-center">
+                        {amount > 0 && inMonth && <div className="w-1 h-1 rounded-full bg-white/60" />}
+                        {inMonth && (taskDateMap[format(day, 'yyyy-MM-dd')] ?? 0) > 0 && (
+                          <div className="w-1 h-1 rounded-full" style={{ background: '#a855f7' }} />
+                        )}
+                      </div>
                     </button>
                   )
                 })}
@@ -353,27 +379,115 @@ export function CalendarPage() {
         size="md"
       >
         <div className="pb-4">
-          {dayExpenses.length > 0 ? (
-            <>
-              <div className="px-4 py-3 border-b border-ui">
-                <p className="text-2xl font-bold text-expense">
-                  {formatCurrency(
-                    dayExpenses.filter(e => e.type !== 'income').reduce((s, e) => s + e.amount, 0),
-                    settings.defaultCurrency, settings.showCents
-                  )}
-                </p>
-                <p className="text-xs text-3">{dayExpenses.length} transaction{dayExpenses.length !== 1 ? 's' : ''}</p>
-              </div>
-              <div>{dayExpenses.map(e => <ExpenseItem key={e.id} expense={e} />)}</div>
-            </>
-          ) : (
-            <div className="px-4 py-8 text-center">
-              <p className="text-4xl mb-2">🎉</p>
-              <p className="text-sm font-medium text-1">No expenses today!</p>
+          {/* Tab switcher — only show if both have data */}
+          {(dayExpenses.length > 0 || dayTasks.length > 0) && (
+            <div className="flex gap-1 p-1 mx-4 mt-2 mb-3 rounded-xl" style={{ background: 'var(--bg-card2)' }}>
+              <button
+                onClick={() => setDayModalTab('expenses')}
+                className={cn('flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-semibold rounded-lg tap transition-all', dayModalTab === 'expenses' ? 'grad-brand text-white shadow' : 'text-2')}
+              >
+                💳 Expenses {dayExpenses.length > 0 && <span className="text-[9px] opacity-70">({dayExpenses.length})</span>}
+              </button>
+              <button
+                onClick={() => setDayModalTab('tasks')}
+                className={cn('flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-semibold rounded-lg tap transition-all', dayModalTab === 'tasks' ? 'grad-brand text-white shadow' : 'text-2')}
+              >
+                ☑ Tasks {dayTasks.length > 0 && <span className="text-[9px] opacity-70">({dayTasks.length})</span>}
+              </button>
             </div>
+          )}
+
+          {dayModalTab === 'expenses' ? (
+            dayExpenses.length > 0 ? (
+              <>
+                <div className="px-4 py-3 border-b border-ui">
+                  <p className="text-2xl font-bold text-expense">
+                    {formatCurrency(
+                      dayExpenses.filter(e => e.type !== 'income').reduce((s, e) => s + e.amount, 0),
+                      settings.defaultCurrency, settings.showCents
+                    )}
+                  </p>
+                  <p className="text-xs text-3">{dayExpenses.length} transaction{dayExpenses.length !== 1 ? 's' : ''}</p>
+                </div>
+                <div>{dayExpenses.map(e => <ExpenseItem key={e.id} expense={e} />)}</div>
+              </>
+            ) : (
+              <div className="px-4 py-8 text-center">
+                <p className="text-4xl mb-2">🎉</p>
+                <p className="text-sm font-medium text-1">No expenses this day!</p>
+              </div>
+            )
+          ) : (
+            dayTasks.length > 0 ? (
+              <div className="px-4 flex flex-col gap-2">
+                {dayTasks.map(task => (
+                  <DayTaskRow key={task.id} task={task} onToggleDone={() => markDone(task.id)} onToggleItem={toggleItem} />
+                ))}
+              </div>
+            ) : (
+              <div className="px-4 py-8 text-center">
+                <p className="text-4xl mb-2">✅</p>
+                <p className="text-sm font-medium text-1">No tasks due this day!</p>
+              </div>
+            )
           )}
         </div>
       </Modal>
+    </div>
+  )
+}
+
+// ─── Day Task Row (used in modal) ─────────────────────────────────────────────
+function DayTaskRow({ task, onToggleDone, onToggleItem }: {
+  task: Task
+  onToggleDone: () => void
+  onToggleItem: (taskId: string, itemId: string) => void
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const isDone = task.status === 'done'
+  const checkedCount = task.items?.filter(i => i.checked).length ?? 0
+  const totalCount = task.items?.length ?? 0
+
+  return (
+    <div className="rounded-2xl overflow-hidden" style={{ background: 'var(--bg-card2)', border: '1px solid var(--border)' }}>
+      <div className="flex items-center gap-2.5 px-3 py-2.5">
+        <button onClick={onToggleDone} className="tap shrink-0">
+          {isDone
+            ? <CheckSquare size={16} style={{ color: 'var(--brand)' }} />
+            : <Square size={16} className="text-3" />}
+        </button>
+        <div className="flex items-center gap-1.5 flex-1 min-w-0">
+          {task.type === 'checklist'
+            ? <ShoppingCart size={12} style={{ color: 'var(--brand)' }} className="shrink-0" />
+            : <ListTodo size={12} style={{ color: 'var(--brand)' }} className="shrink-0" />}
+          <span className={cn('text-sm font-semibold text-1 truncate', isDone && 'line-through text-3')}>
+            {task.title}
+          </span>
+        </div>
+        {task.type === 'checklist' && totalCount > 0 && (
+          <button onClick={() => setExpanded(v => !v)} className="text-[10px] text-3 font-semibold tap shrink-0">
+            {checkedCount}/{totalCount}
+          </button>
+        )}
+      </div>
+      {expanded && task.items && task.items.length > 0 && (
+        <div className="px-3 pb-2 border-t border-ui flex flex-col gap-1 pt-1.5">
+          {task.items.map(item => (
+            <button
+              key={item.id}
+              onClick={() => onToggleItem(task.id, item.id)}
+              className="flex items-center gap-2 py-0.5 tap text-left w-full"
+            >
+              {item.checked
+                ? <CheckSquare size={13} style={{ color: 'var(--income)' }} className="shrink-0" />
+                : <Square size={13} className="text-3 shrink-0" />}
+              <span className={cn('text-xs flex-1', item.checked ? 'line-through text-3' : 'text-2')}>
+                {item.quantity && item.quantity > 1 ? `${item.quantity}× ` : ''}{item.name}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

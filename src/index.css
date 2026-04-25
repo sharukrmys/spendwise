@@ -68,6 +68,67 @@
     --shadow-fab: 0 8px 28px rgba(124, 92, 252, 0.5);
   }
 
+  /* ── Theme presets ─────────────────────── */
+  .theme-amoled {
+    color-scheme: dark;
+    --bg: #000000;
+    --bg-card: #0a0a0a;
+    --bg-card2: #111111;
+    --bg-card3: #1a1a1a;
+    --border: rgba(255, 255, 255, 0.06);
+    --border2: rgba(255, 255, 255, 0.1);
+    --text: #ffffff;
+    --text-2: #aaaaaa;
+    --text-3: #666666;
+    --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.8);
+    --shadow-fab: 0 8px 32px rgba(124, 92, 252, 0.45);
+  }
+
+  .theme-midnight {
+    color-scheme: dark;
+    --bg: #070b1a;
+    --bg-card: #0d1327;
+    --bg-card2: #131c35;
+    --bg-card3: #1a2540;
+    --border: rgba(100, 150, 255, 0.1);
+    --border2: rgba(100, 150, 255, 0.18);
+    --text: #e8f0ff;
+    --text-2: #8ba4d4;
+    --text-3: #4d6a9a;
+    --shadow-card: 0 4px 24px rgba(0, 10, 40, 0.5);
+    --shadow-fab: 0 8px 32px rgba(60, 100, 255, 0.4);
+  }
+
+  .theme-forest {
+    color-scheme: dark;
+    --bg: #061209;
+    --bg-card: #0c1f11;
+    --bg-card2: #122a18;
+    --bg-card3: #193520;
+    --border: rgba(80, 200, 100, 0.1);
+    --border2: rgba(80, 200, 100, 0.18);
+    --text: #e0f5e5;
+    --text-2: #7dbf8a;
+    --text-3: #3d7a4a;
+    --shadow-card: 0 4px 24px rgba(0, 20, 5, 0.5);
+    --shadow-fab: 0 8px 32px rgba(0, 180, 80, 0.4);
+  }
+
+  .theme-rose {
+    color-scheme: dark;
+    --bg: #160a0e;
+    --bg-card: #22101a;
+    --bg-card2: #2e1623;
+    --bg-card3: #3a1d2c;
+    --border: rgba(255, 120, 150, 0.1);
+    --border2: rgba(255, 120, 150, 0.18);
+    --text: #ffe8ee;
+    --text-2: #d4849a;
+    --text-3: #8a4458;
+    --shadow-card: 0 4px 24px rgba(40, 0, 15, 0.5);
+    --shadow-fab: 0 8px 32px rgba(240, 80, 120, 0.4);
+  }
+
   body {
     background: var(--bg);
     color: var(--text);

@@ -104,8 +104,11 @@ export interface Group {
   isOwner?: boolean
 }
 
+export type ThemePreset = 'dark' | 'light' | 'system' | 'amoled' | 'midnight' | 'forest' | 'rose'
+
 export interface AppSettings {
-  theme: 'dark' | 'light' | 'system'
+  theme: ThemePreset
+  accentColor: string       // hex, default '#7c5cfc'
   defaultCurrency: string
   defaultPaymentMethod: PaymentMethod
   firstDayOfWeek: 0 | 1    // 0=Sunday, 1=Monday
@@ -114,6 +117,7 @@ export interface AppSettings {
   enableEncryption: boolean
   compactMode: boolean
   notifications: boolean
+  onboardingDone: boolean
 }
 
 // ─── Analytics / Derived Types ─────────────────────────────────────
@@ -129,4 +133,45 @@ export interface ExpenseSummary {
 export interface TrendPoint {
   date: string
   amount: number
+}
+
+// ─── Tasks / SpendPlan ──────────────────────────────────────────────
+
+export type TaskType = 'todo' | 'checklist'
+export type TaskPriority = 'low' | 'medium' | 'high'
+export type TaskStatus = 'pending' | 'done'
+
+export interface ChecklistItem {
+  id: string
+  name: string
+  quantity?: number
+  estimatedPrice?: number
+  unit?: string
+  checked: boolean
+}
+
+export interface Task {
+  id: string
+  type: TaskType
+  title: string
+  notes?: string
+  status: TaskStatus
+  priority: TaskPriority
+  dueDate?: number       // unix ms
+  dueTime?: string       // 'HH:mm'
+  location?: string
+  amount?: number        // estimated budget / total
+  currency?: string
+  categoryId?: string
+  tags?: string[]
+  items?: ChecklistItem[] // checklist only
+  convertedExpenseId?: string
+  isRecurring?: boolean
+  recurrence?: {
+    interval: RecurrenceInterval
+    nextDate?: number
+    endDate?: number
+  }
+  createdAt: number
+  updatedAt: number
 }

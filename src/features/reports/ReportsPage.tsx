@@ -9,7 +9,7 @@ import { useCategoryStore } from '@/store/useCategoryStore'
 import { expenseQueries } from '@/db/queries'
 import { formatCurrency, getMonthRange, getYearRange, buildTrendData, summarizeExpenses, cn } from '@/core/utils'
 import { PAYMENT_METHOD_LABELS, CHART_COLORS } from '@/core/constants'
-import { format, subMonths } from 'date-fns'
+import { format, subMonths, subYears } from 'date-fns'
 import type { Expense } from '@/core/types'
 import { exportPersonalMonthly } from '@/services/exportXlsx'
 
@@ -77,6 +77,34 @@ export function ReportsPage() {
   const savingsRate = incomeTotal > 0 ? Math.max(0, ((incomeTotal - summary.total) / incomeTotal) * 100) : null
   const topCat = categoryData[0] ?? null
   const netBalance = incomeTotal - summary.total
+
+  const [lastYearExpenses, setLastYearExpenses] = useState<Expense[]>([])
+
+  useEffect(() => {
+    const r = getYearRange(subYears(new Date(), 1))
+    expenseQueries.getByRange(r.start, r.end).then(setLastYearExpenses)
+  }, [])
+
+  // Weekday vs weekend split
+  const weekdayTotal = useMemo(() =>
+    onlyExpenses.filter(e => { const d = new Date(e.date).getDay(); return d >= 1 && d <= 5 }).reduce((s, e) => s + e.amount, 0),
+    [onlyExpenses]
+  )
+  const weekendTotal = useMemo(() =>
+    onlyExpenses.filter(e => { const d = new Date(e.date).getDay(); return d === 0 || d === 6 }).reduce((s, e) => s + e.amount, 0),
+    [onlyExpenses]
+  )
+
+  // YoY: compare current month vs same month last year
+  const thisMonthTotal = useMemo(() => {
+    const r = getMonthRange()
+    return expenses.filter(e => e.type !== 'income' && e.date >= r.start && e.date <= r.end).reduce((s, e) => s + e.amount, 0)
+  }, [expenses])
+  const lastYearSameMonthTotal = useMemo(() => {
+    const r = getMonthRange(subYears(new Date(), 1))
+    return lastYearExpenses.filter(e => e.type !== 'income' && e.date >= r.start && e.date <= r.end).reduce((s, e) => s + e.amount, 0)
+  }, [lastYearExpenses])
+  const yoyChange = lastYearSameMonthTotal > 0 ? ((thisMonthTotal - lastYearSameMonthTotal) / lastYearSameMonthTotal) * 100 : null
 
   const [exporting, setExporting] = useState(false)
   const handleExport = async () => {
@@ -260,6 +288,56 @@ export function ReportsPage() {
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
+          </div>
+        )}
+
+        {/* ─── Weekday vs Weekend ───────────────── */}
+        {onlyExpenses.length > 0 && (weekdayTotal > 0 || weekendTotal > 0) && (
+          <div className="card p-4">
+            <p className="text-sm font-semibold text-1 mb-4">Weekday vs Weekend</p>
+            <div className="flex gap-3">
+              {[
+                { label: 'Weekdays', amount: weekdayTotal, icon: '💼', color: '#7c5cfc' },
+                { label: 'Weekends', amount: weekendTotal, icon: '🎉', color: '#ec4899' },
+              ].map(item => {
+                const total = weekdayTotal + weekendTotal
+                const pct = total > 0 ? (item.amount / total) * 100 : 0
+                return (
+                  <div key={item.label} className="flex-1 rounded-2xl p-3 text-center" style={{ background: `${item.color}10`, border: `1px solid ${item.color}25` }}>
+                    <div className="text-2xl mb-1">{item.icon}</div>
+                    <p className="text-xs font-semibold text-2 mb-1">{item.label}</p>
+                    <p className="text-base font-bold text-1">{fmt(item.amount)}</p>
+                    <p className="text-[10px] font-semibold mt-0.5" style={{ color: item.color }}>{pct.toFixed(0)}%</p>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ─── Year-over-year ───────────────────── */}
+        {yoyChange !== null && (
+          <div className="card p-4">
+            <p className="text-sm font-semibold text-1 mb-3">Year-over-Year</p>
+            <div className="flex items-center gap-4">
+              <div className="flex-1">
+                <p className="text-[10px] text-3 uppercase tracking-wide mb-0.5">This {format(new Date(), 'MMMM')}</p>
+                <p className="text-lg font-bold text-expense">{fmt(thisMonthTotal)}</p>
+              </div>
+              <div className="flex-1 text-right">
+                <p className="text-[10px] text-3 uppercase tracking-wide mb-0.5">Last year</p>
+                <p className="text-lg font-bold text-2">{fmt(lastYearSameMonthTotal)}</p>
+              </div>
+            </div>
+            <div
+              className="mt-3 flex items-center gap-2 px-3 py-2.5 rounded-2xl"
+              style={{ background: yoyChange > 0 ? 'rgba(255,107,107,0.1)' : 'rgba(0,200,150,0.1)' }}
+            >
+              <span className="text-xl">{yoyChange > 0 ? '📈' : '📉'}</span>
+              <p className="text-sm font-semibold" style={{ color: yoyChange > 0 ? 'var(--expense)' : 'var(--income)' }}>
+                {yoyChange > 0 ? '+' : ''}{yoyChange.toFixed(1)}% vs last {format(new Date(), 'MMMM yyyy')}
+              </p>
+            </div>
           </div>
         )}
 

@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, ArrowRight, ShieldCheck, HardDrive, ChevronDown, RefreshCw, CloudOff, Settings } from 'lucide-react'
+import { Plus, ArrowRight, ShieldCheck, HardDrive, ChevronDown, RefreshCw, CloudOff, Settings, Square, ShoppingCart, ListTodo, Bell } from 'lucide-react'
 import logoSrc from '@/assets/SR.png'
 import { PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area, XAxis, Tooltip } from 'recharts'
 import { Modal } from '@/components/ui/Modal'
@@ -11,10 +11,18 @@ import { useCategoryStore } from '@/store/useCategoryStore'
 import { useBudgetStore } from '@/store/useBudgetStore'
 import { useSettingsStore } from '@/store/useSettingsStore'
 import { useSyncStore } from '@/store/useSyncStore'
-import { formatCurrency, getMonthRange, buildTrendData, summarizeExpenses } from '@/core/utils'
-import { format } from 'date-fns'
+import { useTaskStore } from '@/store/useTaskStore'
+import { formatCurrency, getMonthRange, buildTrendData, summarizeExpenses, cn } from '@/core/utils'
+import { format, isToday, isTomorrow, isPast } from 'date-fns'
 import { expenseQueries } from '@/db/queries'
-import type { Expense } from '@/core/types'
+import type { Expense, Task } from '@/core/types'
+
+function getGreeting() {
+  const h = new Date().getHours()
+  if (h < 12) return 'Good morning'
+  if (h < 17) return 'Good afternoon'
+  return 'Good evening'
+}
 
 export function DashboardPage() {
   const navigate = useNavigate()
@@ -24,18 +32,41 @@ export function DashboardPage() {
   const { budgets } = useBudgetStore()
   const { settings } = useSettingsStore()
   const { user: syncUser, enabled: syncEnabled, status: syncStatus, smartSync } = useSyncStore()
+  const allTasks = useTaskStore(s => s.tasks)
   const [allExpenses, setAllExpenses] = useState<Expense[]>([])
+  const [recurringExpenses, setRecurringExpenses] = useState<Expense[]>([])
 
   useEffect(() => {
     const range = getMonthRange()
     setFilter({ startDate: range.start, endDate: range.end })
+    useTaskStore.getState().load()
   }, [])
 
   useEffect(() => { load() }, [filter])
 
   useEffect(() => {
     expenseQueries.getAll().then(setAllExpenses)
+    expenseQueries.getRecurring().then(setRecurringExpenses)
   }, [expenses])
+
+  const upcomingTasks = useMemo(() => {
+    const now = Date.now()
+    return allTasks
+      .filter(t => t.status === 'pending' && t.dueDate && t.dueDate > now)
+      .sort((a, b) => (a.dueDate ?? 0) - (b.dueDate ?? 0))
+      .slice(0, 3)
+  }, [allTasks])
+
+  const todayTasks = useMemo(() => {
+    const start = new Date(); start.setHours(0, 0, 0, 0)
+    const end = new Date(); end.setHours(23, 59, 59, 999)
+    return allTasks.filter(t =>
+      t.status === 'pending' &&
+      t.dueDate !== undefined &&
+      t.dueDate >= start.getTime() &&
+      t.dueDate <= end.getTime()
+    )
+  }, [allTasks])
 
   const summary = useMemo(() => summarizeExpenses(expenses), [expenses])
   const trendData = useMemo(() => buildTrendData(allExpenses, 6), [allExpenses])
@@ -145,7 +176,7 @@ export function DashboardPage() {
           <div className="mb-5">
             <p className="text-xs mb-0.5" style={{ color: 'rgba(200,195,240,0.5)' }}>{format(new Date(), 'EEEE, MMM d')}</p>
             <h1 className="text-xl font-bold leading-tight" style={{ color: '#f0eeff' }}>
-              {syncUser ? `Hi, ${syncUser.name.split(' ')[0]} 👋 ` : 'Hi there 👋 '}
+              {syncUser ? `${getGreeting()}, ${syncUser.name.split(' ')[0]} 👋 ` : `${getGreeting()} 👋 `}
               <span>Welcome back</span>
             </h1>
             <p className="text-xs mt-0.5" style={{ color: 'rgba(200,195,240,0.45)' }}>Your Monthly Expense Summary</p>
@@ -230,6 +261,21 @@ export function DashboardPage() {
       <div className="px-4 py-4 flex flex-col gap-4">
         {/* Privacy & Security Banner — collapsible */}
         <PrivacyBanner />
+
+        {/* Subscription reminder strip */}
+        {recurringExpenses.length > 0 && (
+          <SubscriptionStrip expenses={recurringExpenses} categories={categories} fmt={fmt} />
+        )}
+
+        {/* Today's Tasks strip */}
+        {todayTasks.length > 0 && (
+          <TodayTasksStrip tasks={todayTasks} onNavigate={() => navigate('/tasks')} />
+        )}
+
+        {/* Upcoming Tasks */}
+        {upcomingTasks.length > 0 && (
+          <UpcomingTasksSection tasks={upcomingTasks} currency={settings.defaultCurrency} onNavigate={() => navigate('/tasks')} />
+        )}
 
         {/* Budget bar */}
         {overallBudget && (
@@ -351,6 +397,153 @@ export function DashboardPage() {
       <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add Transaction">
         <ExpenseForm onClose={() => { setAddOpen(false); load() }} />
       </Modal>
+    </div>
+  )
+}
+
+// ─── Today's Tasks Strip ──────────────────────────────────────────────────────
+function TodayTasksStrip({ tasks, onNavigate }: { tasks: Task[]; onNavigate: () => void }) {
+  const { markDone } = useTaskStore()
+  return (
+    <div className="card p-4" style={{ borderLeft: '3px solid #f59e0b' }}>
+      <div className="flex items-center justify-between mb-2.5">
+        <div className="flex items-center gap-2">
+          <span className="text-sm">📋</span>
+          <span className="text-xs font-bold text-1">Today's Tasks</span>
+          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>
+            {tasks.length}
+          </span>
+        </div>
+        <button onClick={onNavigate} className="flex items-center gap-1 text-xs text-brand tap">
+          All tasks <ArrowRight size={10} />
+        </button>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {tasks.slice(0, 3).map(task => (
+          <button
+            key={task.id}
+            onClick={() => markDone(task.id)}
+            className="flex items-center gap-2.5 py-1 tap rounded-lg text-left w-full"
+          >
+            <Square size={15} className="text-3 shrink-0" />
+            <span className="text-sm text-1 flex-1 truncate">{task.title}</span>
+            {task.amount != null && task.amount > 0 && (
+              <span className="text-xs font-semibold shrink-0" style={{ color: 'var(--brand)' }}>
+                ~{task.amount.toFixed(0)}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── Upcoming Tasks Section ───────────────────────────────────────────────────
+function UpcomingTasksSection({ tasks, currency, onNavigate }: { tasks: Task[]; currency: string; onNavigate: () => void }) {
+  return (
+    <div className="card overflow-hidden">
+      <div className="flex items-center justify-between px-4 pt-3 pb-2">
+        <p className="text-sm font-semibold text-1">Upcoming</p>
+        <button onClick={onNavigate} className="flex items-center gap-1 text-xs text-brand tap">
+          See all <ArrowRight size={12} />
+        </button>
+      </div>
+      <div className="flex flex-col">
+        {tasks.map((task, i) => {
+          const d = task.dueDate ? new Date(task.dueDate) : null
+          const dueLbl = d
+            ? isToday(d) ? 'Today'
+            : isTomorrow(d) ? 'Tomorrow'
+            : isPast(d) ? 'Overdue'
+            : format(d, 'MMM d')
+            : null
+          const dueColor = d && isPast(d) && !isToday(d) ? '#ff6b6b' : d && isToday(d) ? '#f59e0b' : 'var(--text-3)'
+          const checklistTotal = task.type === 'checklist'
+            ? (task.items ?? []).reduce((s, item) => s + (item.estimatedPrice ?? 0) * (item.quantity ?? 1), 0)
+            : 0
+          const displayAmt = checklistTotal > 0 ? checklistTotal : task.amount
+          const sym = currency === 'INR' ? '₹' : currency === 'USD' ? '$' : currency[0]
+          return (
+            <div
+              key={task.id}
+              className={cn('flex items-center gap-3 px-4 py-3', i < tasks.length - 1 && 'border-b border-ui')}
+            >
+              <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'rgba(124,92,252,0.12)' }}>
+                {task.type === 'checklist'
+                  ? <ShoppingCart size={14} style={{ color: 'var(--brand)' }} />
+                  : <ListTodo size={14} style={{ color: 'var(--brand)' }} />}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-1 truncate">{task.title}</p>
+                {dueLbl && (
+                  <p className="text-[10px] font-semibold mt-0.5" style={{ color: dueColor }}>{dueLbl}</p>
+                )}
+              </div>
+              {displayAmt != null && displayAmt > 0 && (
+                <span className="text-xs font-bold shrink-0" style={{ color: 'var(--brand)' }}>
+                  ~{sym}{displayAmt.toFixed(0)}
+                </span>
+              )}
+              {task.type === 'checklist' && task.items?.length ? (
+                <span className="text-[10px] text-3 shrink-0">
+                  {task.items.filter(i => i.checked).length}/{task.items.length}
+                </span>
+              ) : null}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ─── Subscription Reminder Strip ─────────────────────────────────────────────
+function SubscriptionStrip({
+  expenses, categories, fmt,
+}: {
+  expenses: Expense[]
+  categories: import('@/core/types').Category[]
+  fmt: (v: number) => string
+}) {
+  const upcoming = expenses
+    .filter(e => e.recurrence?.nextDate)
+    .sort((a, b) => (a.recurrence!.nextDate! - b.recurrence!.nextDate!))
+    .slice(0, 5)
+
+  if (upcoming.length === 0) return null
+
+  return (
+    <div className="card p-4" style={{ borderLeft: '3px solid var(--brand)' }}>
+      <div className="flex items-center gap-2 mb-3">
+        <Bell size={13} style={{ color: 'var(--brand)' }} />
+        <span className="text-xs font-bold text-1 uppercase tracking-wide">Upcoming Subscriptions</span>
+      </div>
+      <div className="flex flex-col gap-2">
+        {upcoming.map(e => {
+          const cat = categories.find(c => c.id === e.categoryId)
+          const next = new Date(e.recurrence!.nextDate!)
+          const daysAway = Math.ceil((next.getTime() - Date.now()) / 86400000)
+          return (
+            <div key={e.id} className="flex items-center gap-3">
+              <div
+                className="w-8 h-8 rounded-xl flex items-center justify-center text-base shrink-0"
+                style={{ background: `${cat?.color ?? '#7c5cfc'}18` }}
+              >
+                {cat?.icon ?? '🔁'}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-1 truncate">{e.notes || cat?.name || 'Recurring'}</p>
+                <p className="text-[10px] text-3">
+                  {daysAway <= 0 ? 'Due today' : daysAway === 1 ? 'Tomorrow' : `In ${daysAway} days`}
+                  {' · '}{e.recurrence!.interval}
+                </p>
+              </div>
+              <span className="text-sm font-bold text-expense shrink-0">{fmt(e.amount)}</span>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }

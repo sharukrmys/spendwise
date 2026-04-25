@@ -51,6 +51,7 @@ export const PAYMENT_METHOD_ICONS: Record<string, string> = {
 
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: 'dark',
+  accentColor: '#7c5cfc',
   defaultCurrency: 'INR',
   defaultPaymentMethod: 'upi',
   firstDayOfWeek: 1,
@@ -59,7 +60,29 @@ export const DEFAULT_SETTINGS: AppSettings = {
   enableEncryption: false,
   compactMode: false,
   notifications: false,
+  onboardingDone: false,
 }
+
+export const THEME_PRESETS = [
+  { value: 'dark',     label: 'Dark',         icon: '🌑' },
+  { value: 'light',    label: 'Light',        icon: '☀️' },
+  { value: 'system',   label: 'System',       icon: '📱' },
+  { value: 'amoled',   label: 'AMOLED',       icon: '⬛' },
+  { value: 'midnight', label: 'Midnight Blue', icon: '🌊' },
+  { value: 'forest',   label: 'Forest',        icon: '🌿' },
+  { value: 'rose',     label: 'Rose Gold',     icon: '🌹' },
+] as const
+
+export const ACCENT_COLORS = [
+  { label: 'Violet',  value: '#7c5cfc' },
+  { label: 'Blue',    value: '#3b82f6' },
+  { label: 'Cyan',    value: '#06b6d4' },
+  { label: 'Green',   value: '#22c55e' },
+  { label: 'Rose',    value: '#f43f5e' },
+  { label: 'Orange',  value: '#f97316' },
+  { label: 'Pink',    value: '#ec4899' },
+  { label: 'Gold',    value: '#f59e0b' },
+]
 
 export const CHART_COLORS = [
   '#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#22c55e',

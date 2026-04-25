@@ -7,6 +7,7 @@ import type {
   Group,
   GroupExpense,
   AppSettings,
+  Task,
 } from "@/core/types";
 import { DEFAULT_CATEGORIES, DEFAULT_SETTINGS } from "@/core/constants";
 import { generateId } from "@/core/utils";
@@ -26,6 +27,7 @@ export class ExpenseDB extends Dexie {
   groups!: Table<Group>;
   groupExpenses!: Table<GroupExpense>;
   settings!: Table<SettingsRecord>;
+  tasks!: Table<Task>;
 
   constructor() {
     super("ExpenseManager");
@@ -40,6 +42,11 @@ export class ExpenseDB extends Dexie {
       groups: "++id, name, createdAt",
       groupExpenses: "++id, groupId, date, paidBy",
       settings: "key",
+    });
+
+    // v2: add tasks table
+    this.version(2).stores({
+      tasks: "++id, type, status, dueDate, categoryId, createdAt",
     });
   }
 }

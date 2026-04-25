@@ -1,20 +1,21 @@
 import { useState, useRef } from 'react'
-import { Moon, Sun, Monitor, Download, Upload, Trash2, ChevronRight, DollarSign, Tag, PlusCircle, RefreshCw, CloudOff, LogOut, CloudDownload, CheckCircle2, AlertCircle, Loader2, Smartphone } from 'lucide-react'
+import { Download, Upload, Trash2, ChevronRight, DollarSign, Tag, PlusCircle, RefreshCw, CloudOff, LogOut, CloudDownload, CheckCircle2, AlertCircle, Loader2, Smartphone, Palette } from 'lucide-react'
 import { usePwaInstall } from '@/hooks/usePwaInstall'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
-import { useSettingsStore, applyTheme } from '@/store/useSettingsStore'
+import { useSettingsStore } from '@/store/useSettingsStore'
 import { useCategoryStore } from '@/store/useCategoryStore'
 import { useBudgetStore } from '@/store/useBudgetStore'
 import { useExpenseStore } from '@/store/useExpenseStore'
 import { useSyncStore } from '@/store/useSyncStore'
 import { backupQueries } from '@/db/queries'
 import { toast } from '@/components/ui/Toast'
-import { CURRENCIES, PAYMENT_METHOD_LABELS } from '@/core/constants'
+import { CURRENCIES, PAYMENT_METHOD_LABELS, THEME_PRESETS, ACCENT_COLORS } from '@/core/constants'
+import { requestNotificationPermission } from '@/services/notifications'
 import { formatCurrency, cn } from '@/core/utils'
-import type { AppSettings, PaymentMethod } from '@/core/types'
+import type { PaymentMethod, ThemePreset } from '@/core/types'
 import { db } from '@/db/schema'
 import { format, formatDistanceToNow } from 'date-fns'
 
@@ -84,9 +85,8 @@ export function SettingsPage() {
   const [restoreConfirm, setRestoreConfirm] = useState(false)
   const [deleteCloudConfirm, setDeleteCloudConfirm] = useState(false)
 
-  const setTheme = (theme: AppSettings['theme']) => {
+  const setTheme = (theme: ThemePreset) => {
     updateSettings({ theme })
-    applyTheme(theme)
   }
 
   const handleExport = async () => {
@@ -178,22 +178,41 @@ export function SettingsPage() {
         <Card padding="none">
           <div className="p-4">
             <p className="text-sm font-medium text-1 mb-3">Theme</p>
-            <div className="grid grid-cols-3 gap-2">
-              {([
-                { value: 'dark', label: 'Dark', icon: <Moon size={16} /> },
-                { value: 'light', label: 'Light', icon: <Sun size={16} /> },
-                { value: 'system', label: 'System', icon: <Monitor size={16} /> },
-              ] as const).map(t => (
+            <div className="grid grid-cols-4 gap-2">
+              {THEME_PRESETS.map(t => (
                 <button
                   key={t.value}
-                  onClick={() => setTheme(t.value)}
+                  onClick={() => setTheme(t.value as ThemePreset)}
                   className={cn(
-                    'flex flex-col items-center gap-1.5 py-3 px-2 rounded-xl text-xs font-medium transition-all tap',
+                    'flex flex-col items-center gap-1 py-2.5 px-1 rounded-xl text-[10px] font-semibold transition-all tap',
                     settings.theme === t.value ? 'grad-brand text-white' : 'bg-card2 text-2'
                   )}
                 >
-                  {t.icon} {t.label}
+                  <span className="text-base leading-none">{t.icon}</span>
+                  {t.label}
                 </button>
+              ))}
+            </div>
+          </div>
+          <div className="border-t border-ui" />
+          <div className="p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Palette size={14} className="text-3" />
+              <p className="text-sm font-medium text-1">Accent colour</p>
+            </div>
+            <div className="flex gap-2.5 flex-wrap">
+              {ACCENT_COLORS.map(ac => (
+                <button
+                  key={ac.value}
+                  onClick={() => updateSettings({ accentColor: ac.value })}
+                  title={ac.label}
+                  className="w-7 h-7 rounded-full tap transition-transform"
+                  style={{
+                    backgroundColor: ac.value,
+                    transform: settings.accentColor === ac.value ? 'scale(1.25)' : 'scale(1)',
+                    boxShadow: settings.accentColor === ac.value ? `0 0 0 2px white, 0 0 0 4px ${ac.value}` : 'none',
+                  }}
+                />
               ))}
             </div>
           </div>
@@ -201,6 +220,19 @@ export function SettingsPage() {
           <ToggleRow label="Compact mode" sub="Denser expense list" value={settings.compactMode} onChange={v => updateSettings({ compactMode: v })} />
           <div className="border-t border-ui" />
           <ToggleRow label="Show cents" sub="Show decimal values" value={settings.showCents} onChange={v => updateSettings({ showCents: v })} />
+          <div className="border-t border-ui" />
+          <ToggleRow
+            label="Notifications"
+            sub="Budget alerts & overdue task reminders"
+            value={settings.notifications}
+            onChange={async (v) => {
+              if (v) {
+                const granted = await requestNotificationPermission()
+                if (!granted) { toast.error('Notification permission denied'); return }
+              }
+              updateSettings({ notifications: v })
+            }}
+          />
         </Card>
 
         {/* Preferences */}

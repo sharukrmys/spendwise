@@ -6,8 +6,10 @@ import { useExpenseStore } from '@/store/useExpenseStore'
 import { useCategoryStore } from '@/store/useCategoryStore'
 import { useSettingsStore } from '@/store/useSettingsStore'
 import { Modal } from '@/components/ui/Modal'
+import { SwipeableRow } from '@/components/ui/SwipeableRow'
 import { ExpenseForm } from './ExpenseForm'
 import { toast } from '@/components/ui/Toast'
+import { haptics } from '@/core/haptics'
 import type { Expense } from '@/core/types'
 
 interface ExpenseItemProps {
@@ -29,6 +31,7 @@ export function ExpenseItem({ expense, compact }: ExpenseItemProps) {
   const icon = isIncome ? '💰' : (category?.icon ?? '📦')
 
   const handleDelete = async () => {
+    haptics.delete()
     await deleteExpense(expense.id)
     await load()
     toast.success('Deleted')
@@ -38,6 +41,10 @@ export function ExpenseItem({ expense, compact }: ExpenseItemProps) {
 
   return (
     <>
+      <SwipeableRow
+        onDelete={() => setDeleteConfirm(true)}
+        onEdit={() => setEditOpen(true)}
+      >
       <button
         onClick={() => setDetailOpen(true)}
         className={cn(
@@ -78,6 +85,7 @@ export function ExpenseItem({ expense, compact }: ExpenseItemProps) {
           <ChevronRight size={14} className="text-3" />
         </div>
       </button>
+      </SwipeableRow>
 
       {/* Detail sheet */}
       <Modal open={detailOpen} onClose={() => setDetailOpen(false)} title="" showClose size="sm">

@@ -20,14 +20,15 @@ export const useSettingsStore = create<SettingsState>()(
         set({ settings })
         saveSettings(settings).catch(console.error)
 
-        // Apply theme immediately
-        if (patch.theme) applyTheme(patch.theme)
+        if (patch.theme || patch.accentColor) {
+          applyTheme(settings.theme, settings.accentColor)
+        }
       },
 
       resetSettings: () => {
         set({ settings: DEFAULT_SETTINGS })
         saveSettings(DEFAULT_SETTINGS).catch(console.error)
-        applyTheme(DEFAULT_SETTINGS.theme)
+        applyTheme(DEFAULT_SETTINGS.theme, DEFAULT_SETTINGS.accentColor)
       },
     }),
     {
@@ -38,9 +39,29 @@ export const useSettingsStore = create<SettingsState>()(
   )
 )
 
-export function applyTheme(theme: AppSettings['theme']) {
-  const isDark =
-    theme === 'dark' ||
-    (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
-  document.documentElement.classList.toggle('light', !isDark)
+const PRESET_CLASSES = ['light', 'theme-amoled', 'theme-midnight', 'theme-forest', 'theme-rose']
+
+export function applyTheme(theme: AppSettings['theme'], accentColor?: string) {
+  // Remove all theme classes first
+  document.documentElement.classList.remove(...PRESET_CLASSES)
+
+  if (theme === 'light') {
+    document.documentElement.classList.add('light')
+  } else if (theme === 'amoled') {
+    document.documentElement.classList.add('theme-amoled')
+  } else if (theme === 'midnight') {
+    document.documentElement.classList.add('theme-midnight')
+  } else if (theme === 'forest') {
+    document.documentElement.classList.add('theme-forest')
+  } else if (theme === 'rose') {
+    document.documentElement.classList.add('theme-rose')
+  } else if (theme === 'system') {
+    const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+    if (!isDark) document.documentElement.classList.add('light')
+  }
+  // 'dark' = default, no class needed
+
+  if (accentColor) {
+    document.documentElement.style.setProperty('--brand', accentColor)
+  }
 }

@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { format } from 'date-fns'
-import { RefreshCw, Camera, X, Hash } from 'lucide-react'
+import { RefreshCw, Camera, X, Hash, Clipboard } from 'lucide-react'
 import { Select } from '@/components/ui/Input'
 import { useExpenseStore } from '@/store/useExpenseStore'
 import { useCategoryStore } from '@/store/useCategoryStore'
@@ -11,6 +11,7 @@ import type { Expense, Group, PaymentMethod, RecurrenceInterval, Tag } from '@/c
 import { PAYMENT_METHOD_LABELS, PAYMENT_METHOD_ICONS, CURRENCIES } from '@/core/constants'
 import { cn } from '@/core/utils'
 import { tagQueries } from '@/db/queries'
+import { parseSMS, merchantToNotes } from '@/core/smsParser'
 
 interface ExpenseFormProps {
   onClose: () => void
@@ -18,6 +19,8 @@ interface ExpenseFormProps {
   defaultType?: 'expense' | 'income'
   /** When set, renders in group-expense mode: group fields always visible, no personal entry saved */
   group?: Group
+  /** Pre-fill values from share target or quick-add */
+  prefill?: { amount?: number; notes?: string }
 }
 
 const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = Object.entries(PAYMENT_METHOD_LABELS).map(
@@ -53,18 +56,18 @@ async function compressImage(file: File): Promise<string> {
   })
 }
 
-export function ExpenseForm({ onClose, expense, defaultType = 'expense', group }: ExpenseFormProps) {
+export function ExpenseForm({ onClose, expense, defaultType = 'expense', group, prefill }: ExpenseFormProps) {
   const { addExpense, updateExpense, load } = useExpenseStore()
   const { categories, addCategory } = useCategoryStore()
   const { settings } = useSettingsStore()
   const { groups, addGroupExpense } = useGroupStore()
 
   const [type, setType] = useState<'expense' | 'income'>(expense?.type ?? defaultType)
-  const [amount, setAmount] = useState(expense?.amount?.toString() ?? '')
+  const [amount, setAmount] = useState(expense?.amount?.toString() ?? prefill?.amount?.toString() ?? '')
   // Group mode: currency is fixed to the group's currency
   const [currency, setCurrency] = useState(expense?.currency ?? (group ? group.currency : settings.defaultCurrency))
   const [categoryId, setCategoryId] = useState(expense?.categoryId ?? categories[0]?.id ?? '')
-  const [notes, setNotes] = useState(expense?.notes ?? '')
+  const [notes, setNotes] = useState(expense?.notes ?? prefill?.notes ?? '')
   const [date, setDate] = useState(
     expense ? format(new Date(expense.date), "yyyy-MM-dd'T'HH:mm") : format(new Date(), "yyyy-MM-dd'T'HH:mm")
   )
@@ -96,11 +99,44 @@ export function ExpenseForm({ onClose, expense, defaultType = 'expense', group }
   const [splitType, setSplitType] = useState<'equal' | 'custom'>('equal')
   const [customSplits, setCustomSplits] = useState<Record<string, string>>({})
 
+  const [showSmsInput, setShowSmsInput] = useState(false)
+  const [smsText, setSmsText] = useState('')
+
   const receiptRef = useRef<HTMLInputElement>(null)
   const amountRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { tagQueries.getAll().then(setAllTags) }, [])
   useEffect(() => { setTimeout(() => amountRef.current?.focus(), 80) }, [])
+
+  const handleSmsParse = (text: string) => {
+    const parsed = parseSMS(text)
+    if (!parsed.amount && !parsed.merchant) {
+      toast.error('Could not read transaction details')
+      return
+    }
+    if (parsed.amount) setAmount(parsed.amount.toString())
+    if (parsed.type) setType(parsed.type)
+    if (parsed.merchant) setNotes(merchantToNotes(parsed.merchant))
+    if (parsed.paymentMethod) setPaymentMethod(parsed.paymentMethod)
+    if (parsed.categoryHint) {
+      const hint = parsed.categoryHint.toLowerCase()
+      const match = categories.find(c =>
+        c.name.toLowerCase().includes(hint) || hint.includes(c.name.toLowerCase())
+      )
+      if (match) setCategoryId(match.id)
+    }
+    setShowSmsInput(false)
+    setSmsText('')
+    toast.success(parsed.confidence === 'high' ? 'Parsed from SMS ✓' : `Parsed · ${parsed.confidence} confidence`)
+  }
+
+  const handleClipboardPaste = async () => {
+    try {
+      const text = await navigator.clipboard.readText()
+      if (text.trim()) { handleSmsParse(text); return }
+    } catch { /* permission denied — fall through */ }
+    setShowSmsInput(v => !v)
+  }
 
   const toggleTag = (id: string) =>
     setSelectedTagIds(prev => prev.includes(id) ? prev.filter(t => t !== id) : [...prev, id])
@@ -318,13 +354,55 @@ export function ExpenseForm({ onClose, expense, defaultType = 'expense', group }
 
         {/* Description — same in both modes */}
         <div className="px-4 pb-3 pt-2">
-          <input
-            className="w-full bg-transparent text-sm text-center text-1 outline-none placeholder:text-3"
-            placeholder={group ? 'e.g. Dinner, Hotel, Taxi…' : (type === 'income' ? 'e.g. Salary, Freelance…' : 'What was this for?')}
-            value={notes}
-            onChange={e => setNotes(e.target.value)}
-          />
+          <div className="relative flex items-center">
+            <input
+              className="w-full bg-transparent text-sm text-center text-1 outline-none placeholder:text-3 pr-5"
+              placeholder={group ? 'e.g. Dinner, Hotel, Taxi…' : (type === 'income' ? 'e.g. Salary, Freelance…' : 'What was this for?')}
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+            />
+            <button
+              type="button"
+              onClick={handleClipboardPaste}
+              title="Paste & parse from SMS"
+              className="absolute right-0 tap transition-opacity"
+              style={{ opacity: showSmsInput ? 0.7 : 0.25 }}
+            >
+              <Clipboard size={13} style={{ color: 'var(--text-3)' }} />
+            </button>
+          </div>
           {errors.notes && <p className="text-xs text-center mt-0.5" style={{ color: 'var(--expense)' }}>{errors.notes}</p>}
+
+          {showSmsInput && (
+            <div className="mt-2 flex flex-col gap-1.5">
+              <textarea
+                className="input text-xs resize-none leading-relaxed"
+                rows={3}
+                placeholder="Paste your bank SMS here…"
+                value={smsText}
+                onChange={e => setSmsText(e.target.value)}
+                autoFocus
+              />
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setShowSmsInput(false); setSmsText('') }}
+                  className="flex-1 py-1.5 rounded-xl text-xs text-3 tap"
+                  style={{ background: 'var(--bg-card2)' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => smsText.trim() && handleSmsParse(smsText)}
+                  className="flex-1 py-1.5 rounded-xl text-xs font-semibold tap"
+                  style={{ background: 'rgba(124,92,252,0.15)', color: 'var(--brand)' }}
+                >
+                  Parse
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
