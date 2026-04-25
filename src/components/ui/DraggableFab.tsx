@@ -128,14 +128,14 @@ export function DraggableFab({ onClick, actions }: DraggableFabProps) {
         </div>
       )}
 
-      {/* Main FAB */}
+      {/* Main FAB — position:relative overrides .fab's position:fixed so it stays in the flex flow */}
       <button
         ref={fabRef}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         className="fab w-14 h-14"
-        style={{ touchAction: 'none' }}
+        style={{ position: 'relative', touchAction: 'none' }}
       >
         {actions && expanded
           ? <X size={22} className="text-white" />
