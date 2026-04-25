@@ -353,25 +353,29 @@ export function ExpenseForm({ onClose, expense, defaultType = 'expense', group, 
         )}
 
         {/* Description — same in both modes */}
-        <div className="px-4 pb-3 pt-2">
-          <div className="relative flex items-center">
-            <input
-              className="w-full bg-transparent text-sm text-center text-1 outline-none placeholder:text-3 pr-5"
-              placeholder={group ? 'e.g. Dinner, Hotel, Taxi…' : (type === 'income' ? 'e.g. Salary, Freelance…' : 'What was this for?')}
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-            />
-            <button
-              type="button"
-              onClick={handleClipboardPaste}
-              title="Paste & parse from SMS"
-              className="absolute right-0 tap transition-opacity"
-              style={{ opacity: showSmsInput ? 0.7 : 0.25 }}
-            >
-              <Clipboard size={13} style={{ color: 'var(--text-3)' }} />
-            </button>
-          </div>
+        <div className="px-4 pb-2 pt-2">
+          <input
+            className="w-full bg-transparent text-sm text-center text-1 outline-none placeholder:text-3"
+            placeholder={group ? 'e.g. Dinner, Hotel, Taxi…' : (type === 'income' ? 'e.g. Salary, Freelance…' : 'What was this for?')}
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
+          />
           {errors.notes && <p className="text-xs text-center mt-0.5" style={{ color: 'var(--expense)' }}>{errors.notes}</p>}
+
+          {/* SMS parse pill — visible hint below description */}
+          {!showSmsInput && (
+            <div className="flex justify-center mt-1.5">
+              <button
+                type="button"
+                onClick={handleClipboardPaste}
+                className="flex items-center gap-1.5 px-3 py-1 rounded-full tap"
+                style={{ background: 'var(--bg-card2)', border: '1px solid var(--border)' }}
+              >
+                <Clipboard size={11} style={{ color: 'var(--text-3)' }} />
+                <span className="text-[10px] font-medium" style={{ color: 'var(--text-3)' }}>Paste bank SMS to auto-fill</span>
+              </button>
+            </div>
+          )}
 
           {showSmsInput && (
             <div className="mt-2 flex flex-col gap-1.5">
