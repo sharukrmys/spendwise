@@ -30,7 +30,6 @@ export function DraggableFab({ onClick, actions }: DraggableFabProps) {
     return () => obs.disconnect()
   }, [])
 
-  // Close speed-dial when modal opens
   useEffect(() => {
     if (hidden) setExpanded(false)
   }, [hidden])
@@ -79,6 +78,9 @@ export function DraggableFab({ onClick, actions }: DraggableFabProps) {
 
   if (hidden) return null
 
+  // FAB size = 56px (w-14). Action icons = 48px (w-12).
+  // Right-aligning both: FAB and icons share the same right edge → no horizontal overlap.
+  // Actions render BEFORE the FAB in DOM so they sit above it in the flex column.
   return (
     <div
       style={{
@@ -89,29 +91,34 @@ export function DraggableFab({ onClick, actions }: DraggableFabProps) {
         zIndex: 50,
         display: 'flex',
         flexDirection: 'column',
-        alignItems: 'center',
+        alignItems: 'flex-end',
         gap: 10,
         touchAction: 'none',
       }}
     >
-      {/* Speed-dial actions */}
+      {/* Speed-dial actions — rendered first so they appear above the FAB */}
       {actions && expanded && (
-        <div className="flex flex-col gap-2 items-center mb-1">
+        <div className="flex flex-col gap-2.5 items-end pb-1">
           {[...actions].reverse().map((action) => (
             <button
               key={action.label}
               onClick={() => { action.onClick(); setExpanded(false) }}
-              className="flex items-center gap-2 tap"
+              className="flex items-center gap-2.5 tap"
               style={{ pointerEvents: 'auto' }}
             >
               <span
-                className="text-[11px] font-semibold px-2.5 py-1 rounded-full whitespace-nowrap"
-                style={{ background: 'var(--bg-card)', border: '1px solid var(--border2)', color: 'var(--text-2)', boxShadow: '0 2px 8px rgba(0,0,0,0.4)' }}
+                className="text-[11px] font-semibold px-3 py-1.5 rounded-full whitespace-nowrap"
+                style={{
+                  background: 'var(--bg-card)',
+                  border: '1px solid var(--border2)',
+                  color: 'var(--text-2)',
+                  boxShadow: '0 2px 12px rgba(0,0,0,0.35)',
+                }}
               >
                 {action.label}
               </span>
               <div
-                className="w-11 h-11 rounded-full flex items-center justify-center shadow-lg"
+                className="w-12 h-12 rounded-full flex items-center justify-center shadow-lg shrink-0"
                 style={{ background: action.color ?? 'var(--brand)' }}
               >
                 <span className="text-white">{action.icon}</span>
