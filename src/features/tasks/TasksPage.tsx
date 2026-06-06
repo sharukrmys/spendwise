@@ -24,7 +24,11 @@ export function TasksPage() {
   const [showSearch, setShowSearch] = useState(false)
   const [, setConvertingId] = useState<string | null>(null)
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    setFilter({ search: undefined })
+    setSearch('')
+    load()
+  }, [])
 
   useEffect(() => {
     setFilter({ search: search || undefined })

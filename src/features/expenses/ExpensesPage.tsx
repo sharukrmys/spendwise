@@ -1,13 +1,14 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { Plus, X, Search, SlidersHorizontal, ChevronLeft, ChevronRight, TrendingUp, TrendingDown, ArrowDownCircle, ArrowUpCircle, ArrowUpDown } from 'lucide-react'
+import { Plus, X, Search, SlidersHorizontal, ChevronLeft, ChevronRight, TrendingUp, TrendingDown, ArrowDownCircle, ArrowUpCircle, ArrowUpDown, RefreshCw } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { ExpenseList } from './ExpenseList'
 import { ExpenseForm } from './ExpenseForm'
 import { useExpenseStore } from '@/store/useExpenseStore'
 import { useCategoryStore } from '@/store/useCategoryStore'
 import { useSettingsStore } from '@/store/useSettingsStore'
-import { formatCurrency, getMonthRange, cn } from '@/core/utils'
+import { useGroupStore } from '@/store/useGroupStore'
+import { formatCurrency, getMonthRange, cn, groupExpensesToExpenses } from '@/core/utils'
 import { format, subMonths, addMonths } from 'date-fns'
 
 type TabType = 'all' | 'expense' | 'income'
@@ -17,6 +18,7 @@ export function ExpensesPage() {
   const rawExpenses = useExpenseStore(s => s.expenses)
   const { categories } = useCategoryStore()
   const { settings } = useSettingsStore()
+  const { groups, groupExpenses } = useGroupStore()
 
   const [addOpen, setAddOpen] = useState(false)
   const [addType, setAddType] = useState<'expense' | 'income'>('expense')
@@ -27,6 +29,29 @@ export function ExpensesPage() {
   const [currentDate, setCurrentDate] = useState(new Date())
   const [sortBy, setSortBy] = useState<'date' | 'amount'>('date')
   const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc')
+  const [refreshing, setRefreshing] = useState(false)
+  const listRef = useRef<HTMLDivElement>(null)
+  const pullStartY = useRef(0)
+  const pulling = useRef(false)
+  const [pullDistance, setPullDistance] = useState(0)
+
+  // Synthetic group expense entries for the current month
+  // Exclude any synthetic whose groupId+amount+date matches a personal expense already
+  // linked to that group (avoids double-counting when using "Add to Group" on a personal expense)
+  const groupSpendEntries = useMemo(() => {
+    if (!settings.includeGroupSpends || !settings.myGroupName) return []
+    const range = getMonthRange(currentDate)
+    const linkedKeys = new Set(
+      rawExpenses
+        .filter(e => e.groupId)
+        .map(e => `${e.groupId}|${e.amount}|${Math.round(e.date / 60000)}`)
+    )
+    return groupExpensesToExpenses(groups, groupExpenses, settings.myGroupName)
+      .filter(e =>
+        e.date >= range.start && e.date <= range.end &&
+        !linkedKeys.has(`${e.groupId}|${e.amount}|${Math.round(e.date / 60000)}`)
+      )
+  }, [settings.includeGroupSpends, settings.myGroupName, groups, groupExpenses, currentDate, rawExpenses])
 
   useEffect(() => {
     const range = getMonthRange(currentDate)
@@ -35,18 +60,15 @@ export function ExpensesPage() {
 
   useEffect(() => { load() }, [filter])
 
-  useEffect(() => {
-    setFilter({ search: searchQuery || undefined })
-  }, [searchQuery])
-
   const expenses = useMemo(() => {
-    const filtered = rawExpenses.filter(e => {
+    const base = [...rawExpenses, ...groupSpendEntries]
+    const filtered = base.filter(e => {
       if (tab === 'expense' && e.type !== 'expense') return false
       if (tab === 'income' && e.type !== 'income') return false
       if (filter.categoryId && e.categoryId !== filter.categoryId) return false
       if (filter.paymentMethod && e.paymentMethod !== filter.paymentMethod) return false
-      if (filter.search) {
-        const q = filter.search.toLowerCase()
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase()
         if (!(e.notes?.toLowerCase().includes(q) || e.amount.toString().includes(q))) return false
       }
       return true
@@ -55,7 +77,7 @@ export function ExpensesPage() {
     return [...filtered].sort((a, b) =>
       sortBy === 'date' ? mult * (a.date - b.date) : mult * (a.amount - b.amount)
     )
-  }, [rawExpenses, filter, tab, sortBy, sortDir])
+  }, [rawExpenses, groupSpendEntries, filter, tab, sortBy, sortDir, searchQuery])
 
   const sortLabel = sortBy === 'date'
     ? (sortDir === 'desc' ? 'Newest' : 'Oldest')
@@ -69,12 +91,42 @@ export function ExpensesPage() {
   }
 
   const incomeTotal = useMemo(() => rawExpenses.filter(e => e.type === 'income').reduce((s, e) => s + e.amount, 0), [rawExpenses])
-  const expenseTotal = useMemo(() => rawExpenses.filter(e => e.type !== 'income').reduce((s, e) => s + e.amount, 0), [rawExpenses])
+  const expenseTotal = useMemo(() => [
+    ...rawExpenses.filter(e => e.type !== 'income'),
+    ...groupSpendEntries,
+  ].reduce((s, e) => s + e.amount, 0), [rawExpenses, groupSpendEntries])
   const balance = incomeTotal - expenseTotal
 
   const isCurrentMonth = format(currentDate, 'yyyy-MM') === format(new Date(), 'yyyy-MM')
-
   const fmt = (v: number) => formatCurrency(v, settings.defaultCurrency, settings.showCents)
+
+  const PULL_THRESHOLD = 72
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (listRef.current && listRef.current.scrollTop === 0) {
+      pullStartY.current = e.touches[0].clientY
+      pulling.current = true
+    }
+  }
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!pulling.current) return
+    const delta = Math.max(0, e.touches[0].clientY - pullStartY.current)
+    setPullDistance(Math.min(delta, PULL_THRESHOLD * 1.5))
+  }
+
+  const handleTouchEnd = async () => {
+    if (!pulling.current) return
+    pulling.current = false
+    if (pullDistance >= PULL_THRESHOLD) {
+      setRefreshing(true)
+      setPullDistance(0)
+      await load()
+      setRefreshing(false)
+    } else {
+      setPullDistance(0)
+    }
+  }
 
   const openAdd = (type: 'expense' | 'income') => { setAddType(type); setAddOpen(true) }
 
@@ -89,7 +141,7 @@ export function ExpensesPage() {
           </button>
           <div className="text-center">
             <p className="text-base font-bold" style={{ color: '#f0eeff' }}>{format(currentDate, 'MMMM yyyy')}</p>
-            <p className="text-xs" style={{ color: 'rgba(200,195,240,0.6)' }}>{rawExpenses.length} transactions</p>
+            <p className="text-xs" style={{ color: 'rgba(200,195,240,0.6)' }}>{expenses.length} transaction{expenses.length !== 1 ? 's' : ''}</p>
           </div>
           <button onClick={() => setCurrentDate(d => addMonths(d, 1))} disabled={isCurrentMonth} className="w-9 h-9 flex items-center justify-center rounded-xl tap disabled:opacity-30" style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.12)' }}>
             <ChevronRight size={18} style={{ color: 'rgba(240,238,255,0.8)' }} />
@@ -130,7 +182,7 @@ export function ExpensesPage() {
           <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: 'rgba(200,195,240,0.5)' }} />
           <input
             className="pl-10 pr-10 py-3 text-sm w-full rounded-[0.875rem] outline-none"
-            style={{ background: 'rgba(255,255,255,0.08)', border: '1.5px solid rgba(255,255,255,0.12)', color: '#f0eeff', fontSize: '0.9375rem' }}
+            style={{ background: 'rgba(255,255,255,0.08)', border: '1.5px solid rgba(255,255,255,0.12)', color: '#f0eeff', fontSize: '1rem' }}
             placeholder="Search transactions..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
@@ -193,9 +245,48 @@ export function ExpensesPage() {
       )}
 
       {/* ─── List ─────────────────────────────── */}
-      <div className="flex-1 bg-base">
-        <ExpenseList expenses={expenses} loading={loading} onAdd={() => setAddOpen(true)} />
+      <div
+        ref={listRef}
+        className="flex-1 bg-base overflow-y-auto"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        style={{ WebkitOverflowScrolling: 'touch' }}
+      >
+        {/* Pull-to-refresh indicator */}
+        {(pullDistance > 0 || refreshing) && (
+          <div
+            className="flex items-center justify-center overflow-hidden transition-all duration-200"
+            style={{ height: refreshing ? 48 : Math.min(pullDistance, PULL_THRESHOLD) * 0.67 }}
+          >
+            <RefreshCw
+              size={18}
+              className={refreshing ? 'animate-spin text-brand' : 'text-3'}
+              style={{ transform: `rotate(${(pullDistance / PULL_THRESHOLD) * 360}deg)`, transition: refreshing ? undefined : 'none' }}
+            />
+          </div>
+        )}
+        {expenses.length === 0 && (rawExpenses.length > 0 || groupSpendEntries.length > 0) ? (
+          <div className="flex flex-col items-center justify-center py-16 text-center px-8">
+            <p className="text-4xl mb-3">🔍</p>
+            <p className="text-base font-semibold text-1 mb-1">No results</p>
+            <p className="text-sm text-2 mb-4">Try adjusting your filters or search term.</p>
+            <button
+              onClick={() => {
+                setSearchQuery('')
+                setFilter({ categoryId: undefined, paymentMethod: undefined })
+              }}
+              className="text-sm font-semibold text-brand tap px-4 py-2 rounded-xl"
+              style={{ background: 'rgba(124,92,252,0.12)' }}
+            >
+              Clear filters
+            </button>
+          </div>
+        ) : (
+          <ExpenseList expenses={expenses} loading={loading} onAdd={() => setAddOpen(true)} />
+        )}
       </div>
+
 
       {/* FAB — portalled to body so position:fixed works on iOS */}
       {createPortal(

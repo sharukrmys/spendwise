@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useEffect } from 'react'
 import { format } from 'date-fns'
 import { RefreshCw, Camera, X, Hash, Clipboard } from 'lucide-react'
 import { Select } from '@/components/ui/Input'
+import { NumPad } from '@/components/ui/NumPad'
 import { useExpenseStore } from '@/store/useExpenseStore'
 import { useCategoryStore } from '@/store/useCategoryStore'
 import { useSettingsStore } from '@/store/useSettingsStore'
@@ -60,12 +61,13 @@ export function ExpenseForm({ onClose, expense, defaultType = 'expense', group, 
   const { addExpense, updateExpense, load } = useExpenseStore()
   const { categories, addCategory } = useCategoryStore()
   const { settings } = useSettingsStore()
-  const { groups, addGroupExpense } = useGroupStore()
+  const { groups, addGroupExpense, updateGroupExpense, load: loadGroups } = useGroupStore()
 
   const [type, setType] = useState<'expense' | 'income'>(expense?.type ?? defaultType)
   const [amount, setAmount] = useState(expense?.amount?.toString() ?? prefill?.amount?.toString() ?? '')
-  // Group mode: currency is fixed to the group's currency
-  const [currency, setCurrency] = useState(expense?.currency ?? (group ? group.currency : settings.defaultCurrency))
+  // Group mode: currency is fixed to the group's currency. Trip mode: default to trip currency.
+  const defaultCurrency = group ? group.currency : (settings.tripMode && settings.tripCurrency ? settings.tripCurrency : settings.defaultCurrency)
+  const [currency, setCurrency] = useState(expense?.currency ?? defaultCurrency)
   const [categoryId, setCategoryId] = useState(expense?.categoryId ?? categories[0]?.id ?? '')
   const [notes, setNotes] = useState(expense?.notes ?? prefill?.notes ?? '')
   const [date, setDate] = useState(
@@ -82,31 +84,43 @@ export function ExpenseForm({ onClose, expense, defaultType = 'expense', group, 
   const [loading, setLoading] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [showTags, setShowTags] = useState(false)
-  const [showSplit, setShowSplit] = useState(false)
+  const [showSplit, setShowSplit] = useState(!!expense?.groupId)
   const [showCurrency, setShowCurrency] = useState(false)
+  const [showPaymentMethod, setShowPaymentMethod] = useState(false)
 
   // Tags
   const [allTags, setAllTags] = useState<Tag[]>([])
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>(expense?.tags ?? [])
   const [tagInput, setTagInput] = useState('')
 
-  // Personal-expense group split (pill mode — not used in group mode)
-  const [splitGroupId, setSplitGroupId] = useState<string | null>(null)
+  // Personal-expense group split
+  const [splitGroupId, setSplitGroupId] = useState<string | null>(expense?.groupId ?? null)
   const [splitPaidBy, setSplitPaidBy] = useState<string>('')
+  const [personalSplitType, setPersonalSplitType] = useState<'equal' | 'custom'>('equal')
+  const [personalCustomSplits, setPersonalCustomSplits] = useState<Record<string, string>>({})
+  const [personalIgnoredSplitMembers, setPersonalIgnoredSplitMembers] = useState<Set<string>>(new Set())
 
   // Group mode: paid-by + split (always shown when group prop is set)
   const [paidBy, setPaidBy] = useState(group?.members[0]?.id ?? '')
   const [splitType, setSplitType] = useState<'equal' | 'custom'>('equal')
   const [customSplits, setCustomSplits] = useState<Record<string, string>>({})
+  const [ignoredSplitMembers, setIgnoredSplitMembers] = useState<Set<string>>(new Set())
 
   const [showSmsInput, setShowSmsInput] = useState(false)
   const [smsText, setSmsText] = useState('')
+  const [showNumPad, setShowNumPad] = useState(false)
 
   const receiptRef = useRef<HTMLInputElement>(null)
-  const amountRef = useRef<HTMLInputElement>(null)
+
+  // Scroll focused inputs into view when the soft keyboard opens
+  const handleInputFocus = (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const el = e.currentTarget
+    setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'center' }), 320)
+  }
 
   useEffect(() => { tagQueries.getAll().then(setAllTags) }, [])
-  useEffect(() => { setTimeout(() => amountRef.current?.focus(), 80) }, [])
+  useEffect(() => { setTimeout(() => setShowNumPad(true), 120) }, [])
+  useEffect(() => { loadGroups() }, [])
 
   const handleSmsParse = (text: string) => {
     const parsed = parseSMS(text)
@@ -140,6 +154,20 @@ export function ExpenseForm({ onClose, expense, defaultType = 'expense', group, 
 
   const toggleTag = (id: string) =>
     setSelectedTagIds(prev => prev.includes(id) ? prev.filter(t => t !== id) : [...prev, id])
+
+  const toggleIgnoreSplitMember = (id: string) =>
+    setIgnoredSplitMembers(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) { next.delete(id) } else { next.add(id); setCustomSplits(s => ({ ...s, [id]: '0' })) }
+      return next
+    })
+
+  const togglePersonalIgnoreMember = (id: string) =>
+    setPersonalIgnoredSplitMembers(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) { next.delete(id) } else { next.add(id); setPersonalCustomSplits(s => ({ ...s, [id]: '0' })) }
+      return next
+    })
 
   const handleAddTag = async () => {
     const name = tagInput.trim()
@@ -206,11 +234,13 @@ export function ExpenseForm({ onClose, expense, defaultType = 'expense', group, 
       if (group) {
         if (group.members.length === 0) { toast.error('Add members first'); setLoading(false); return }
         if (!paidBy) { toast.error('Select who paid'); setLoading(false); return }
+        const activeMembers = group.members.filter(m => !ignoredSplitMembers.has(m.id))
         const splits = group.members.map(m => {
-          const splitAmount = splitType === 'equal'
-            ? parseFloat((totalAmount / group.members.length).toFixed(2))
+          const ignored = ignoredSplitMembers.has(m.id)
+          const splitAmount = ignored ? 0 : splitType === 'equal'
+            ? parseFloat((totalAmount / (activeMembers.length || 1)).toFixed(2))
             : parseFloat(customSplits[m.id] ?? '0')
-          return { memberId: m.id, amount: splitAmount, settled: m.id === paidBy }
+          return { memberId: m.id, amount: splitAmount, settled: m.id === paidBy && !ignored }
         })
         if (categoryId) saveRecentCatId(categoryId)
         await addGroupExpense({
@@ -222,6 +252,9 @@ export function ExpenseForm({ onClose, expense, defaultType = 'expense', group, 
           splits,
           date: new Date(date).getTime(),
           categoryId: (categoryId || categories[0]?.id) || undefined,
+          paymentMethod,
+          tags: selectedTagIds.length > 0 ? selectedTagIds : undefined,
+          attachments: receipt ? [receipt] : undefined,
         })
         toast.success(`Added to ${group.name}!`)
         onClose()
@@ -241,38 +274,58 @@ export function ExpenseForm({ onClose, expense, defaultType = 'expense', group, 
         isRecurring,
         recurrence: isRecurring ? { interval: recurrenceInterval } : undefined,
         attachments: receipt ? [receipt] : (expense?.attachments ?? []),
+        groupId: splitGroupId || undefined,
       }
       if (data.categoryId) saveRecentCatId(data.categoryId)
+      let savedExpenseId: string
       if (expense) {
         await updateExpense(expense.id, data)
+        savedExpenseId = expense.id
+      } else {
+        const saved = await addExpense(data)
+        savedExpenseId = saved.id
+      }
+      // Add to group for new expenses OR when the group selection changes on edit
+      const shouldAddToGroup = splitGroupId && type === 'expense' && (!expense || splitGroupId !== expense.groupId)
+      if (shouldAddToGroup) {
+        const grp = groups.find(g => g.id === splitGroupId)
+        if (grp && grp.members.length > 0) {
+          const paidById = splitPaidBy || grp.members[0].id
+          const activeMembers = grp.members.filter(m => !personalIgnoredSplitMembers.has(m.id))
+          const newGE = await addGroupExpense({
+            groupId: grp.id,
+            description: notes.trim() || 'Expense',
+            amount: totalAmount,
+            currency: grp.currency,
+            paidBy: paidById,
+            categoryId: data.categoryId || undefined,
+            splits: grp.members.map(m => {
+              const ignored = personalIgnoredSplitMembers.has(m.id)
+              const splitAmt = ignored ? 0 : personalSplitType === 'equal'
+                ? parseFloat((totalAmount / (activeMembers.length || 1)).toFixed(2))
+                : parseFloat(personalCustomSplits[m.id] ?? '0')
+              return { memberId: m.id, amount: splitAmt, settled: m.id === paidById && !ignored }
+            }),
+            date: data.date,
+            notes: notes.trim() || undefined,
+          })
+          // Store back-reference so future edits keep both records in sync
+          await updateExpense(savedExpenseId, { linkedGroupExpenseId: newGE.id })
+          toast.success(`${expense ? 'Updated & added to' : 'Added to'} ${grp.name}!`)
+        } else {
+          toast.success(expense ? 'Updated' : 'Expense added!')
+        }
+      } else if (expense?.linkedGroupExpenseId && expense.groupId && splitGroupId === expense.groupId) {
+        // Group unchanged on edit — keep GroupExpense.description in sync with personal expense notes
+        await updateGroupExpense(expense.groupId, expense.linkedGroupExpenseId, {
+          description: notes.trim() || 'Expense',
+          amount: totalAmount,
+          date: data.date,
+          categoryId: data.categoryId || undefined,
+        })
         toast.success('Updated')
       } else {
-        await addExpense(data)
-        if (splitGroupId && type === 'expense') {
-          const grp = groups.find(g => g.id === splitGroupId)
-          if (grp && grp.members.length > 0) {
-            const paidById = splitPaidBy || grp.members[0].id
-            const perPerson = parseFloat((totalAmount / grp.members.length).toFixed(2))
-            await addGroupExpense({
-              groupId: grp.id,
-              description: notes.trim() || 'Expense',
-              amount: totalAmount,
-              currency: grp.currency,
-              paidBy: paidById,
-              categoryId: data.categoryId || undefined,
-              splits: grp.members.map(m => ({
-                memberId: m.id,
-                amount: perPerson,
-                settled: m.id === paidById,
-              })),
-              date: data.date,
-              notes: notes.trim() || undefined,
-            })
-            toast.success(`Added to ${grp.name}!`)
-          }
-        } else {
-          toast.success(type === 'income' ? 'Income added!' : 'Expense added!')
-        }
+        toast.success(expense ? 'Updated' : (type === 'income' ? 'Income added!' : 'Expense added!'))
       }
       await load()
       onClose()
@@ -305,18 +358,16 @@ export function ExpenseForm({ onClose, expense, defaultType = 'expense', group, 
             <p className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: 'rgba(200,195,240,0.5)' }}>
               {group.currency} · {group.name}
             </p>
-            <div className="flex items-center justify-center gap-1 py-1">
+            <button
+              type="button"
+              onClick={() => setShowNumPad(true)}
+              className="flex items-center justify-center gap-1 py-1 tap w-full"
+            >
               <span className="text-4xl font-bold" style={{ color: 'rgba(200,195,240,0.5)' }}>{currencySymbol}</span>
-              <input
-                ref={amountRef}
-                type="number" inputMode="decimal" placeholder="0"
-                step="0.01" min="0"
-                value={amount}
-                onChange={e => setAmount(e.target.value)}
-                className="bg-transparent text-5xl font-bold outline-none placeholder:text-3 text-center w-[180px]"
-                style={{ maxWidth: 'calc(100% - 56px)', minWidth: 80, color: '#f0eeff' }}
-              />
-            </div>
+              <span className="text-5xl font-bold" style={{ color: amount ? '#f0eeff' : 'rgba(200,195,240,0.3)', minWidth: 80, textAlign: 'center' }}>
+                {amount || '0'}
+              </span>
+            </button>
             {errors.amount && <p className="text-xs text-center pb-1" style={{ color: 'var(--expense)' }}>{errors.amount}</p>}
           </div>
         ) : (
@@ -336,18 +387,34 @@ export function ExpenseForm({ onClose, expense, defaultType = 'expense', group, 
             </div>
             <div className="px-4 pb-1" style={{ background: accentBg }}>
               <div className="flex items-center justify-center gap-1 py-2">
-                <span className="text-4xl font-bold" style={{ color: accentColor }}>{currencySymbol}</span>
-                <input
-                  ref={amountRef}
-                  type="number" inputMode="decimal" placeholder="0"
-                  step="0.01" min="0"
-                  value={amount}
-                  onChange={e => setAmount(e.target.value)}
-                  className="bg-transparent text-5xl font-bold text-1 outline-none placeholder:text-3 text-center w-[180px]"
-                  style={{ maxWidth: 'calc(100% - 56px)', minWidth: 80 }}
-                />
+                <button
+                  type="button"
+                  onClick={() => setShowCurrency(v => !v)}
+                  className="text-4xl font-bold tap shrink-0"
+                  style={{ color: accentColor, background: 'transparent', border: 'none', padding: 0, opacity: showCurrency ? 1 : 0.85 }}
+                >
+                  {currencySymbol}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowNumPad(true)}
+                  className="text-5xl font-bold outline-none text-center tap"
+                  style={{ minWidth: 80, color: amount ? 'var(--text)' : 'var(--text-3)', background: 'transparent', border: 'none' }}
+                >
+                  {amount || '0'}
+                </button>
               </div>
               {errors.amount && <p className="text-xs text-center pb-1" style={{ color: 'var(--expense)' }}>{errors.amount}</p>}
+              {/* Currency selector — drops inline below amount when symbol tapped */}
+              {showCurrency && (
+                <div className="px-2 pb-2">
+                  <Select
+                    options={CURRENCIES.map(c => ({ value: c.code, label: `${c.symbol} ${c.code} — ${c.name}` }))}
+                    value={currency}
+                    onChange={e => { setCurrency(e.target.value); setShowCurrency(false) }}
+                  />
+                </div>
+              )}
             </div>
           </>
         )}
@@ -359,6 +426,7 @@ export function ExpenseForm({ onClose, expense, defaultType = 'expense', group, 
             placeholder={group ? 'e.g. Dinner, Hotel, Taxi…' : (type === 'income' ? 'e.g. Salary, Freelance…' : 'What was this for?')}
             value={notes}
             onChange={e => setNotes(e.target.value)}
+            onFocus={handleInputFocus}
           />
           {errors.notes && <p className="text-xs text-center mt-0.5" style={{ color: 'var(--expense)' }}>{errors.notes}</p>}
 
@@ -480,216 +548,143 @@ export function ExpenseForm({ onClose, expense, defaultType = 'expense', group, 
           </label>
 
           {/* Payment method — not applicable for group expenses */}
-          {!group && (
-            <div className="flex-1">
-              <Select
-                options={PAYMENT_METHODS}
-                value={paymentMethod}
-                onChange={e => setPaymentMethod(e.target.value as PaymentMethod)}
-              />
-            </div>
-          )}
         </div>
 
         {/* ─── Group mode: Paid By + Split ─── */}
         {group && (
           <>
-            {/* Who paid */}
-            <div>
-              <p className="text-[10px] font-bold text-3 uppercase tracking-wider mb-2">Who paid?</p>
-              <div className="flex gap-2 flex-wrap">
-                {group.members.map(m => (
-                  <button key={m.id} onClick={() => setPaidBy(m.id)}
-                    className="flex items-center gap-2 px-3 py-2 rounded-xl tap transition-all"
-                    style={paidBy === m.id
-                      ? { background: `${m.avatarColor}25`, border: `1.5px solid ${m.avatarColor}60` }
-                      : { background: 'var(--bg-card2)', border: '1.5px solid var(--border)' }}>
-                    <div className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white shrink-0"
-                      style={{ backgroundColor: m.avatarColor }}>
-                      {m.name[0].toUpperCase()}
-                    </div>
-                    <span className="text-xs font-semibold"
-                      style={{ color: paidBy === m.id ? m.avatarColor : 'var(--text-2)' }}>
-                      {m.name}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Split type */}
-            <div>
-              <p className="text-[10px] font-bold text-3 uppercase tracking-wider mb-2">Split</p>
-              <div className="flex gap-2">
-                {(['equal', 'custom'] as const).map(t => (
-                  <button key={t} onClick={() => setSplitType(t)}
-                    className={cn('flex-1 py-2.5 text-sm font-semibold rounded-xl tap transition-all',
-                      splitType === t ? 'grad-brand text-white' : 'bg-card2 text-2')}>
-                    {t === 'equal' ? '⚖ Equal' : '✏ Custom'}
-                  </button>
-                ))}
-              </div>
-              {splitType === 'equal' && group.members.length > 0 && amount && !isNaN(parseFloat(amount)) && (
-                <p className="text-xs text-3 mt-1.5 text-center">
-                  {currencySymbol}{(parseFloat(amount) / group.members.length).toFixed(2)} per person
-                </p>
-              )}
-            </div>
-
-            {/* Custom split inputs */}
-            {splitType === 'custom' && (
-              <div className="flex flex-col gap-2">
-                {group.members.map(m => (
-                  <div key={m.id} className="flex items-center gap-3">
-                    <div className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
-                      style={{ backgroundColor: m.avatarColor }}>
-                      {m.name[0].toUpperCase()}
-                    </div>
-                    <span className="text-sm font-medium text-1 flex-1">{m.name}</span>
-                    <input
-                      type="number" placeholder="0.00"
-                      value={customSplits[m.id] ?? ''}
-                      onChange={e => setCustomSplits(s => ({ ...s, [m.id]: e.target.value }))}
-                      className="input w-28 text-right"
-                    />
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-
-        {/* ─── Personal mode only: pill row + expandables ─── */}
-        {!group && (
-          <>
-            <div className="flex gap-2 flex-wrap">
-              <button onClick={() => setIsRecurring(v => !v)}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold tap transition-all"
-                style={pill(isRecurring)}>
-                <RefreshCw size={12} />
-                {isRecurring ? 'Recurring' : 'Once'}
-              </button>
-
-              <button onClick={() => setShowTags(v => !v)}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold tap transition-all"
-                style={pill(showTags || selectedTagIds.length > 0)}>
-                <Hash size={12} />
-                {selectedTagIds.length > 0 ? `${selectedTagIds.length} Tag${selectedTagIds.length > 1 ? 's' : ''}` : 'Tags'}
-              </button>
-
-              <button onClick={() => receiptRef.current?.click()}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold tap transition-all"
-                style={pill(!!receipt, '#00c896')}>
-                <Camera size={12} />
-                {receipt ? '✓ Receipt' : 'Receipt'}
-              </button>
-
-              {type === 'expense' && groups.length > 0 && (
-                <button onClick={() => setShowSplit(v => !v)}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold tap transition-all"
-                  style={pill(showSplit || !!splitGroupId)}>
-                  👥
-                  {splitGroupId ? (groups.find(g => g.id === splitGroupId)?.name ?? 'Split') : 'Split'}
-                </button>
-              )}
-
-              <button onClick={() => setShowCurrency(v => !v)}
-                className="flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-semibold tap transition-all"
-                style={pill(showCurrency || currency !== settings.defaultCurrency)}>
-                <span className="font-bold">{currencySymbol}</span>
-                {currency}
-              </button>
-            </div>
-
-            {isRecurring && (
-              <Select
-                options={[
-                  { value: 'daily', label: '🔁 Daily' },
-                  { value: 'weekly', label: '🔁 Weekly' },
-                  { value: 'monthly', label: '🔁 Monthly' },
-                  { value: 'yearly', label: '🔁 Yearly' },
-                ]}
-                value={recurrenceInterval}
-                onChange={e => setRecurrenceInterval(e.target.value as RecurrenceInterval)}
-              />
-            )}
-
-            {showTags && (
-              <div className="flex flex-col gap-2 p-3 rounded-2xl bg-card2">
-                {allTags.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {allTags.map(tag => {
-                      const active = selectedTagIds.includes(tag.id)
-                      return (
-                        <button key={tag.id} onClick={() => toggleTag(tag.id)}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold tap transition-all"
-                          style={active
-                            ? { background: `${tag.color}22`, color: tag.color, border: `1.5px solid ${tag.color}55` }
-                            : { background: 'var(--bg-card)', color: 'var(--text-3)', border: '1.5px solid var(--border)' }}>
-                          <Hash size={9} />{tag.name}
-                          {active && <X size={9} className="ml-0.5 opacity-70" />}
-                        </button>
-                      )
-                    })}
-                  </div>
-                )}
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 flex items-center gap-1.5 rounded-xl px-3 py-2"
-                    style={{ background: 'var(--bg-card)', border: '1.5px solid var(--border)' }}>
-                    <Hash size={12} className="text-3 shrink-0" />
-                    <input className="flex-1 bg-transparent text-sm text-1 outline-none placeholder:text-3"
-                      placeholder="Add tag…" value={tagInput} onChange={e => setTagInput(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddTag() } }} />
-                  </div>
-                  {tagInput.trim() && (
-                    <button onClick={handleAddTag}
-                      className="w-8 h-8 flex items-center justify-center rounded-xl tap"
-                      style={{ background: 'var(--brand)', color: '#fff' }}>
-                      <Hash size={14} />
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {showCurrency && (
-              <Select
-                options={CURRENCIES.map(c => ({ value: c.code, label: `${c.symbol} ${c.code} — ${c.name}` }))}
-                value={currency}
-                onChange={e => setCurrency(e.target.value)}
-              />
-            )}
-
-            {showSplit && type === 'expense' && groups.length > 0 && (
-              <div className="rounded-2xl overflow-hidden" style={{ background: 'var(--bg-card2)', border: '1px solid var(--border)' }}>
-                <div className="flex gap-2 p-3 overflow-x-auto no-scrollbar">
-                  {groups.map(g => (
-                    <button key={g.id}
-                      onClick={() => {
-                        setSplitGroupId(g.id === splitGroupId ? null : g.id)
-                        setSplitPaidBy(g.members[0]?.id ?? '')
-                      }}
-                      className="flex items-center gap-2 px-3 py-2 rounded-xl shrink-0 tap transition-all"
-                      style={splitGroupId === g.id
-                        ? { background: 'rgba(124,92,252,0.2)', border: '1.5px solid rgba(124,92,252,0.5)' }
-                        : { background: 'var(--bg-card)', border: '1.5px solid var(--border)' }}>
-                      <div className="w-6 h-6 grad-brand rounded-lg flex items-center justify-center shrink-0">
-                        <span className="text-[10px] font-bold text-white">{g.name[0].toUpperCase()}</span>
+            {/* Who paid + Split type in one compact row */}
+            <div className="flex gap-3 items-start">
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-bold text-3 uppercase tracking-wider mb-1.5">Who paid?</p>
+                <div className="flex gap-1.5 flex-wrap">
+                  {group.members.map(m => (
+                    <button key={m.id} onClick={() => setPaidBy(m.id)}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl tap transition-all"
+                      style={paidBy === m.id
+                        ? { background: `${m.avatarColor}25`, border: `1.5px solid ${m.avatarColor}60` }
+                        : { background: 'var(--bg-card2)', border: '1.5px solid var(--border)' }}>
+                      <div className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white shrink-0"
+                        style={{ backgroundColor: m.avatarColor }}>
+                        {m.name[0].toUpperCase()}
                       </div>
-                      <div className="text-left">
-                        <p className="text-xs font-semibold" style={{ color: splitGroupId === g.id ? 'var(--brand)' : 'var(--text-1)' }}>{g.name}</p>
-                        <p className="text-[10px] text-3">{g.members.length} members</p>
-                      </div>
+                      <span className="text-xs font-semibold"
+                        style={{ color: paidBy === m.id ? m.avatarColor : 'var(--text-2)' }}>
+                        {m.name}
+                      </span>
                     </button>
                   ))}
                 </div>
+              </div>
+              <div className="shrink-0">
+                <p className="text-[10px] font-bold text-3 uppercase tracking-wider mb-1.5">Split</p>
+                <div className="flex gap-1.5">
+                  {(['equal', 'custom'] as const).map(t => (
+                    <button key={t} onClick={() => setSplitType(t)}
+                      className={cn('px-3 py-1.5 text-xs font-semibold rounded-xl tap transition-all',
+                        splitType === t ? 'grad-brand text-white' : 'bg-card2 text-2')}>
+                      {t === 'equal' ? '⚖️ Equal' : '✏️ Custom'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
 
-                {splitGroupId && (() => {
-                  const grp = groups.find(g => g.id === splitGroupId)!
-                  return (
-                    <div className="px-3 pb-3 border-t border-ui pt-3">
-                      <p className="text-[10px] font-bold text-3 uppercase tracking-wider mb-2">Who paid?</p>
-                      <div className="flex gap-2 flex-wrap">
+            {/* Split member cards — shared design for both equal & custom */}
+            <SplitMemberCards
+              members={group.members}
+              splitType={splitType}
+              amount={amount}
+              currencySymbol={currencySymbol}
+              ignoredMembers={ignoredSplitMembers}
+              customSplits={customSplits}
+              onToggleIgnore={toggleIgnoreSplitMember}
+              onCustomChange={(id, val) => setCustomSplits(s => ({ ...s, [id]: val }))}
+            />
+          </>
+        )}
+
+        {/* ─── Personal-only pills: Recurring + Add to Group ─── */}
+        {!group && (
+          <div className="flex gap-2 flex-wrap">
+            <button onClick={() => setIsRecurring(v => !v)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold tap transition-all"
+              style={pill(isRecurring)}>
+              <RefreshCw size={12} />
+              {isRecurring ? 'Recurring' : 'Once'}
+            </button>
+
+            {type === 'expense' && groups.length > 0 && (
+              <button onClick={() => setShowSplit(v => !v)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold tap transition-all"
+                style={pill(showSplit || !!splitGroupId)}>
+                👥
+                {splitGroupId ? `✓ ${groups.find(g => g.id === splitGroupId)?.name ?? 'Group'}` : 'Add to Group'}
+              </button>
+            )}
+          </div>
+        )}
+
+        {!group && isRecurring && (
+          <Select
+            options={[
+              { value: 'daily', label: '🔁 Daily' },
+              { value: 'weekly', label: '🔁 Weekly' },
+              { value: 'monthly', label: '🔁 Monthly' },
+              { value: 'yearly', label: '🔁 Yearly' },
+            ]}
+            value={recurrenceInterval}
+            onChange={e => setRecurrenceInterval(e.target.value as RecurrenceInterval)}
+          />
+        )}
+
+        {!group && showSplit && type === 'expense' && groups.length > 0 && (
+          <div className="rounded-2xl overflow-hidden" style={{ background: 'var(--bg-card2)', border: '1px solid var(--border)' }}>
+            {/* Group picker */}
+            <div className="flex gap-2 px-3 pt-2 pb-2 overflow-x-auto no-scrollbar">
+              {groups.map(g => (
+                <button key={g.id}
+                  onClick={() => {
+                    const selecting = g.id !== splitGroupId
+                    setSplitGroupId(selecting ? g.id : null)
+                    setSplitPaidBy(g.members[0]?.id ?? '')
+                    setPersonalSplitType('equal')
+                    setPersonalCustomSplits({})
+                    setPersonalIgnoredSplitMembers(new Set())
+                  }}
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl shrink-0 tap transition-all"
+                  style={splitGroupId === g.id
+                    ? { background: 'rgba(124,92,252,0.2)', border: '1.5px solid rgba(124,92,252,0.5)' }
+                    : { background: 'var(--bg-card)', border: '1.5px solid var(--border)' }}>
+                  <div className="w-6 h-6 grad-brand rounded-lg flex items-center justify-center shrink-0">
+                    <span className="text-[10px] font-bold text-white">{g.name[0].toUpperCase()}</span>
+                  </div>
+                  <div className="text-left">
+                    <p className="text-xs font-semibold" style={{ color: splitGroupId === g.id ? 'var(--brand)' : 'var(--text-1)' }}>{g.name}</p>
+                    <p className="text-[10px] text-3">{g.members.length} members</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            {splitGroupId && (() => {
+              const grp = groups.find(g => g.id === splitGroupId)!
+              const grpSym = CURRENCIES.find(c => c.code === grp.currency)?.symbol ?? grp.currency[0]
+              const hasCurrencyMismatch = grp.currency !== currency
+              return (
+                <div className="border-t border-ui">
+                  {/* Currency mismatch warning */}
+                  {hasCurrencyMismatch && (
+                    <div className="mx-3 mt-3 px-3 py-2 rounded-xl text-[11px] leading-relaxed"
+                      style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', color: 'rgba(251,191,36,0.9)' }}>
+                      ⚠️ This group uses {grpSym} {grp.currency} but your expense is in {currencySymbol} {currency}. The amount will be recorded as-is in {grp.currency}. Change the group's currency in Group Settings if needed.
+                    </div>
+                  )}
+                  {/* Who paid + Split type in one compact row */}
+                  <div className="px-3 pt-2 pb-2 flex gap-3 items-start">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[10px] font-bold text-3 uppercase tracking-wider mb-1.5">Who paid?</p>
+                      <div className="flex gap-1.5 flex-wrap">
                         {grp.members.map(m => (
                           <button key={m.id} onClick={() => setSplitPaidBy(m.id)}
                             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl tap transition-all"
@@ -703,33 +698,167 @@ export function ExpenseForm({ onClose, expense, defaultType = 'expense', group, 
                           </button>
                         ))}
                       </div>
-                      {amount && !isNaN(parseFloat(amount)) && grp.members.length > 0 && (
-                        <p className="text-[10px] text-3 mt-2">
-                          Split equally · {CURRENCIES.find(c => c.code === grp.currency)?.symbol ?? ''}{(parseFloat(amount) / grp.members.length).toFixed(2)} per person
-                        </p>
-                      )}
                     </div>
-                  )
-                })()}
-              </div>
-            )}
-
-            {/* Receipt */}
-            <input ref={receiptRef} type="file" accept="image/*" className="hidden" onChange={handleReceiptChange} />
-            {receipt && (
-              <div className="flex items-center gap-3">
-                <div className="relative shrink-0">
-                  <img src={receipt} className="w-14 h-14 rounded-xl object-cover border border-ui" alt="Receipt" />
-                  <button onClick={() => setReceipt(null)}
-                    className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center"
-                    style={{ background: 'var(--expense)' }}>
-                    <X size={10} className="text-white" />
-                  </button>
+                    <div className="shrink-0">
+                      <p className="text-[10px] font-bold text-3 uppercase tracking-wider mb-1.5">Split</p>
+                      <div className="flex gap-1.5">
+                        {(['equal', 'custom'] as const).map(t => (
+                          <button key={t} onClick={() => setPersonalSplitType(t)}
+                            className={cn('px-3 py-1.5 text-xs font-semibold rounded-xl tap transition-all',
+                              personalSplitType === t ? 'grad-brand text-white' : 'bg-card2 text-2')}>
+                            {t === 'equal' ? '⚖️ Equal' : '✏️ Custom'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  {/* Member split cards */}
+                  <div className="border-t border-ui px-3 pt-2 pb-2">
+                    <SplitMemberCards
+                      members={grp.members}
+                      splitType={personalSplitType}
+                      amount={amount}
+                      currencySymbol={grpSym}
+                      ignoredMembers={personalIgnoredSplitMembers}
+                      customSplits={personalCustomSplits}
+                      onToggleIgnore={togglePersonalIgnoreMember}
+                      onCustomChange={(id, val) => setPersonalCustomSplits(s => ({ ...s, [id]: val }))}
+                    />
+                  </div>
                 </div>
-                <p className="text-xs text-2">Receipt attached</p>
+              )
+            })()}
+          </div>
+        )}
+
+        {/* ─── Tags, Receipt, Payment Method — shown in both personal and group mode ─── */}
+        <div className="flex gap-2 flex-wrap">
+          <button onClick={() => setShowTags(v => !v)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold tap transition-all"
+            style={pill(showTags || selectedTagIds.length > 0)}>
+            <Hash size={12} />
+            {selectedTagIds.length > 0 ? `${selectedTagIds.length} Tag${selectedTagIds.length > 1 ? 's' : ''}` : 'Tags'}
+          </button>
+
+          <button onClick={() => receiptRef.current?.click()}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold tap transition-all"
+            style={pill(!!receipt, '#00c896')}>
+            <Camera size={12} />
+            {receipt ? '✓ Receipt' : 'Receipt'}
+          </button>
+
+          <button onClick={() => setShowPaymentMethod(v => !v)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold tap transition-all"
+            style={pill(showPaymentMethod)}>
+            <span>{PAYMENT_METHOD_ICONS[paymentMethod]}</span>
+            {PAYMENT_METHOD_LABELS[paymentMethod]}
+          </button>
+        </div>
+
+        {showTags && (
+          <div className="flex flex-col gap-2 p-3 rounded-2xl bg-card2">
+            {allTags.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {allTags.map(tag => {
+                  const active = selectedTagIds.includes(tag.id)
+                  return (
+                    <button key={tag.id} onClick={() => toggleTag(tag.id)}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold tap transition-all"
+                      style={active
+                        ? { background: `${tag.color}22`, color: tag.color, border: `1.5px solid ${tag.color}55` }
+                        : { background: 'var(--bg-card)', color: 'var(--text-3)', border: '1.5px solid var(--border)' }}>
+                      <Hash size={9} />{tag.name}
+                      {active && <X size={9} className="ml-0.5 opacity-70" />}
+                    </button>
+                  )
+                })}
               </div>
             )}
-          </>
+            <div className="flex items-center gap-2">
+              <div className="flex-1 flex items-center gap-1.5 rounded-xl px-3 py-2"
+                style={{ background: 'var(--bg-card)', border: '1.5px solid var(--border)' }}>
+                <Hash size={12} className="text-3 shrink-0" />
+                <input className="flex-1 bg-transparent text-sm text-1 outline-none placeholder:text-3"
+                  placeholder="Add tag…" value={tagInput} onChange={e => setTagInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddTag() } }} />
+              </div>
+              {tagInput.trim() && (
+                <button onClick={handleAddTag}
+                  className="w-8 h-8 flex items-center justify-center rounded-xl tap"
+                  style={{ background: 'var(--brand)', color: '#fff' }}>
+                  <Hash size={14} />
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {showPaymentMethod && (
+          <div className="flex flex-wrap gap-2">
+            {PAYMENT_METHODS.map(pm => (
+              <button key={pm.value}
+                onClick={() => { setPaymentMethod(pm.value as PaymentMethod); setShowPaymentMethod(false) }}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl tap transition-all text-xs font-semibold"
+                style={paymentMethod === pm.value
+                  ? { background: 'rgba(124,92,252,0.2)', border: '1.5px solid rgba(124,92,252,0.5)', color: 'var(--brand)' }
+                  : { background: 'var(--bg-card2)', border: '1.5px solid var(--border)', color: 'var(--text-2)' }}>
+                {pm.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Receipt */}
+        <input ref={receiptRef} type="file" accept="image/*" className="hidden" onChange={handleReceiptChange} />
+        {receipt && (
+          <div className="flex items-center gap-3">
+            <div className="relative shrink-0">
+              <img src={receipt} className="w-14 h-14 rounded-xl object-cover border border-ui" alt="Receipt" />
+              <button onClick={() => setReceipt(null)}
+                className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center"
+                style={{ background: 'var(--expense)' }}>
+                <X size={10} className="text-white" />
+              </button>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-2 mb-1.5">Receipt attached</p>
+              {'TextDetector' in window && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      const img = new Image()
+                      await new Promise<void>((res, rej) => { img.onload = () => res(); img.onerror = rej; img.src = receipt })
+                      const bitmap = await createImageBitmap(img)
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      const detector = new (window as any).TextDetector()
+                      const results: Array<{ rawValue: string }> = await detector.detect(bitmap)
+                      const text = results.map(r => r.rawValue).join(' ')
+                      // Look for currency amount patterns: ₹1,234.56 / $12.50 / 1234
+                      const match = text.match(/(?:₹|Rs\.?|INR|USD|\$|€|£)?\s*([\d,]+(?:\.\d{1,2})?)/i)
+                      if (match) {
+                        const parsed = parseFloat(match[1].replace(/,/g, ''))
+                        if (!isNaN(parsed) && parsed > 0) {
+                          setAmount(parsed.toString())
+                          toast.success(`Amount extracted: ${currencySymbol}${parsed}`)
+                        } else {
+                          toast.error('No amount found in receipt')
+                        }
+                      } else {
+                        toast.error('No amount found in receipt')
+                      }
+                    } catch {
+                      toast.error('OCR failed — try again')
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl tap text-xs font-semibold"
+                  style={{ background: 'rgba(124,92,252,0.12)', color: 'var(--brand)', border: '1px solid rgba(124,92,252,0.25)' }}
+                >
+                  ✨ Extract amount
+                </button>
+              )}
+            </div>
+          </div>
         )}
 
         {/* ─── Save button ─── */}
@@ -745,6 +874,147 @@ export function ExpenseForm({ onClose, expense, defaultType = 'expense', group, 
         </button>
         <button className="text-sm text-3 tap text-center py-1" onClick={onClose}>Cancel</button>
       </div>
+
+      {/* NumPad overlay */}
+      {showNumPad && (
+        <NumPad
+          value={amount}
+          onChange={setAmount}
+          onConfirm={() => setShowNumPad(false)}
+          onClose={() => setShowNumPad(false)}
+          currencySymbol={currencySymbol}
+          label={group ? `${group.name} · ${group.currency}` : (type === 'income' ? 'Income amount' : 'Expense amount')}
+        />
+      )}
+    </div>
+  )
+}
+
+// ─── Split Member Cards ───────────────────────────────────────────────
+export function SplitMemberCards({
+  members, splitType, amount, currencySymbol,
+  ignoredMembers, customSplits, onToggleIgnore, onCustomChange,
+}: {
+  members: Group['members']
+  splitType: 'equal' | 'custom'
+  amount: string
+  currencySymbol: string
+  ignoredMembers: Set<string>
+  customSplits: Record<string, string>
+  onToggleIgnore: (id: string) => void
+  onCustomChange: (id: string, val: string) => void
+}) {
+  const total = parseFloat(amount) || 0
+  const activeMembers = members.filter(m => !ignoredMembers.has(m.id))
+  // Floor-based equal split: remainder (rounding) goes to first active member
+  const base = activeMembers.length > 0 && total > 0
+    ? Math.floor((total / activeMembers.length) * 100) / 100
+    : 0
+  const roundRem = activeMembers.length > 0 && total > 0
+    ? parseFloat((total - base * activeMembers.length).toFixed(2))
+    : 0
+  const getEqualAmt = (id: string) => {
+    if (ignoredMembers.has(id)) return 0
+    return activeMembers[0]?.id === id ? base + roundRem : base
+  }
+
+  const customSum = members
+    .filter(m => !ignoredMembers.has(m.id))
+    .reduce((s, m) => s + (parseFloat(customSplits[m.id] ?? '0') || 0), 0)
+  const remaining = total - customSum
+  const pct = total > 0 ? Math.min(100, (customSum / total) * 100) : 0
+  // Only warn when difference >= 1 unit; ignore sub-unit rounding
+  const ok = Math.abs(remaining) < 1
+
+  return (
+    <div className="flex flex-col gap-2">
+      {members.map(m => {
+        const ignored = ignoredMembers.has(m.id)
+        return (
+          <div key={m.id}
+            className="rounded-2xl overflow-hidden transition-all"
+            style={{
+              background: ignored ? 'rgba(255,255,255,0.02)' : 'var(--bg-card2)',
+              border: `1.5px solid ${ignored ? 'rgba(255,255,255,0.06)' : 'var(--border)'}`,
+              opacity: ignored ? 0.5 : 1,
+            }}>
+            {/* Header: avatar + name + amount (equal) + exclude */}
+            <div className="flex items-center gap-3 px-3 py-2.5">
+              <div className="w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold text-white shrink-0"
+                style={{ backgroundColor: ignored ? '#666' : m.avatarColor }}>
+                {m.name[0].toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className={cn('text-sm font-semibold truncate', ignored ? 'text-3 line-through' : 'text-1')}>
+                  {m.name}
+                </p>
+                {splitType === 'equal' && !ignored && total > 0 && (
+                  <p className="text-sm font-bold mt-0.5" style={{ color: 'var(--brand)' }}>
+                    {currencySymbol}{getEqualAmt(m.id).toFixed(2)}
+                  </p>
+                )}
+                {ignored && <p className="text-[10px] text-3 mt-0.5">Not in this split</p>}
+              </div>
+              <button
+                onClick={() => onToggleIgnore(m.id)}
+                className="px-2.5 py-1.5 rounded-xl tap text-[11px] font-bold shrink-0 transition-all"
+                style={ignored
+                  ? { background: 'rgba(0,200,150,0.12)', color: '#00c896', border: '1px solid rgba(0,200,150,0.3)' }
+                  : { background: 'rgba(255,107,107,0.08)', color: 'rgba(255,107,107,0.8)', border: '1px solid rgba(255,107,107,0.2)' }}>
+                {ignored ? '+ Include' : '× Exclude'}
+              </button>
+            </div>
+            {/* Custom amount input — full width below header */}
+            {splitType === 'custom' && !ignored && (
+              <div className="px-3 pb-3">
+                <div className="flex items-center gap-2 rounded-xl px-4 py-3"
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(124,92,252,0.1), rgba(168,85,247,0.06))',
+                    border: '1.5px solid rgba(124,92,252,0.2)',
+                  }}>
+                  <span className="text-lg font-bold shrink-0" style={{ color: 'rgba(124,92,252,0.6)' }}>
+                    {currencySymbol}
+                  </span>
+                  <input
+                    type="number" inputMode="decimal" placeholder="0.00"
+                    value={customSplits[m.id] ?? ''}
+                    onChange={e => onCustomChange(m.id, e.target.value)}
+                    className="flex-1 bg-transparent text-xl font-bold text-1 text-right outline-none placeholder:text-3 min-w-0"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })}
+
+      {/* Distribution summary — custom mode, informational only */}
+      {splitType === 'custom' && total > 0 && (
+        <div className="rounded-2xl px-4 py-3"
+          style={{ background: 'var(--bg-card2)', border: '1.5px solid var(--border)' }}>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-3">Distributed</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-sm font-bold tabular-nums" style={{ color: ok ? '#00c896' : 'var(--text-1)' }}>
+                {currencySymbol}{customSum.toFixed(2)}
+              </span>
+              <span className="text-xs text-3">of {currencySymbol}{total.toFixed(2)}</span>
+            </div>
+          </div>
+          <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
+            <div className="h-full rounded-full transition-all duration-500"
+              style={{ width: `${pct}%`, background: ok ? '#00c896' : remaining > 0 ? 'linear-gradient(90deg,#7c5cfc,#a855f7)' : '#ef4444' }} />
+          </div>
+          {!ok && (
+            <p className="text-[11px] text-center mt-2 font-medium"
+              style={{ color: remaining > 0 ? 'var(--text-3)' : 'var(--expense)' }}>
+              {remaining > 0
+                ? `${currencySymbol}${remaining.toFixed(2)} remaining`
+                : `${currencySymbol}${Math.abs(remaining).toFixed(2)} over`}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   )
 }

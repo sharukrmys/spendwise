@@ -4,6 +4,9 @@ import { expenseQueries } from '@/db/queries'
 import { getMonthRange } from '@/core/utils'
 import { useSyncStore } from '@/store/useSyncStore'
 
+// Module-level map for undo-delete (not in Zustand state — no serialization)
+const _pendingDeletes = new Map<string, { expense: Expense; timer: ReturnType<typeof setTimeout> }>()
+
 interface ExpenseState {
   expenses: Expense[]
   loading: boolean
@@ -22,7 +25,8 @@ interface ExpenseState {
   loadByRange: (start: number, end: number) => Promise<void>
   addExpense: (data: Omit<Expense, 'id' | 'createdAt' | 'updatedAt'>) => Promise<Expense>
   updateExpense: (id: string, data: Partial<Expense>) => Promise<void>
-  deleteExpense: (id: string) => Promise<void>
+  deleteExpense: (id: string) => void
+  undoDeleteExpense: (id: string) => void
   setFilter: (filter: Partial<ExpenseState['filter']>) => void
   resetFilter: () => void
 }
@@ -74,10 +78,28 @@ export const useExpenseStore = create<ExpenseState>()((set, get) => ({
       useSyncStore.getState().scheduleSync()
     },
 
-    deleteExpense: async (id) => {
-      await expenseQueries.delete(id)
+    deleteExpense: (id) => {
+      const expense = get().expenses.find(e => e.id === id)
+      if (!expense) return
+      // Optimistic remove from UI immediately
       set(s => ({ expenses: s.expenses.filter(e => e.id !== id) }))
-      useSyncStore.getState().scheduleSync()
+      // Schedule actual DB delete after 5s (allows undo)
+      const timer = setTimeout(async () => {
+        _pendingDeletes.delete(id)
+        await expenseQueries.delete(id)
+        useSyncStore.getState().scheduleSync()
+      }, 5000)
+      _pendingDeletes.set(id, { expense, timer })
+    },
+
+    undoDeleteExpense: (id) => {
+      const pending = _pendingDeletes.get(id)
+      if (!pending) return
+      clearTimeout(pending.timer)
+      _pendingDeletes.delete(id)
+      set(s => ({
+        expenses: [...s.expenses, pending.expense].sort((a, b) => b.date - a.date),
+      }))
     },
 
     setFilter: (filter) => set(s => ({ filter: { ...s.filter, ...filter } })),

@@ -3,22 +3,27 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   Cell, AreaChart, Area
 } from 'recharts'
-import { Download } from 'lucide-react'
+import { Download, ChevronDown } from 'lucide-react'
 import { useSettingsStore } from '@/store/useSettingsStore'
 import { useCategoryStore } from '@/store/useCategoryStore'
+import { useGroupStore } from '@/store/useGroupStore'
 import { expenseQueries } from '@/db/queries'
-import { formatCurrency, getMonthRange, getYearRange, buildTrendData, summarizeExpenses, cn } from '@/core/utils'
+import { formatCurrency, getMonthRange, getYearRange, buildTrendData, summarizeExpenses, cn, groupExpensesToExpenses } from '@/core/utils'
 import { PAYMENT_METHOD_LABELS, CHART_COLORS } from '@/core/constants'
 import { format, subMonths, subYears } from 'date-fns'
 import type { Expense } from '@/core/types'
 import { exportPersonalMonthly } from '@/services/exportXlsx'
 
 type Period = 'month' | 'quarter' | 'year'
+type Source = 'all' | 'personal' | string  // string = groupId
 
 export function ReportsPage() {
   const { settings } = useSettingsStore()
   const { categories } = useCategoryStore()
+  const { groups, groupExpenses } = useGroupStore()
   const [period, setPeriod] = useState<Period>('month')
+  const [source, setSource] = useState<Source>('all')
+  const [sourceOpen, setSourceOpen] = useState(false)
   const [expenses, setExpenses] = useState<Expense[]>([])
 
   useEffect(() => {
@@ -39,16 +44,50 @@ export function ReportsPage() {
     load()
   }, [period])
 
-  const summary = useMemo(() => summarizeExpenses(expenses), [expenses])
-  const incomeTotal = useMemo(() => expenses.filter(e => e.type === 'income').reduce((s, e) => s + e.amount, 0), [expenses])
-  const onlyExpenses = useMemo(() => expenses.filter(e => e.type !== 'income'), [expenses])
+  const groupSpendEntries = useMemo(() => {
+    // When source is 'personal', exclude all group spend entries
+    if (source === 'personal') return []
+    if (!settings.myGroupName) return []
+    const linkedKeys = new Set(
+      expenses
+        .filter(e => e.groupId)
+        .map(e => `${e.groupId}|${e.amount}|${Math.round(e.date / 60000)}`)
+    )
+    let all = groupExpensesToExpenses(groups, groupExpenses, settings.myGroupName)
+      .filter(e => !linkedKeys.has(`${e.groupId}|${e.amount}|${Math.round(e.date / 60000)}`))
+    // When source is a specific groupId, only show that group's entries
+    if (source !== 'all') {
+      all = all.filter(e => e.groupId === source)
+    }
+    if (period === 'month') {
+      const r = getMonthRange()
+      return all.filter(e => e.date >= r.start && e.date <= r.end)
+    } else if (period === 'quarter') {
+      const start = getMonthRange(subMonths(new Date(), 2)).start
+      const end = getMonthRange().end
+      return all.filter(e => e.date >= start && e.date <= end)
+    } else {
+      const r = getYearRange()
+      return all.filter(e => e.date >= r.start && e.date <= r.end)
+    }
+  }, [source, settings.myGroupName, groups, groupExpenses, period, expenses])
+
+  // When viewing a specific group, use only group entries (not personal)
+  const allExpenses = useMemo(() => {
+    if (source !== 'all' && source !== 'personal') return groupSpendEntries
+    if (source === 'personal') return expenses
+    return [...expenses, ...groupSpendEntries]
+  }, [expenses, groupSpendEntries, source])
+  const summary = useMemo(() => summarizeExpenses(allExpenses), [allExpenses])
+  const incomeTotal = useMemo(() => allExpenses.filter(e => e.type === 'income').reduce((s, e) => s + e.amount, 0), [allExpenses])
+  const onlyExpenses = useMemo(() => allExpenses.filter(e => e.type !== 'income'), [allExpenses])
   const trendData = useMemo(() => buildTrendData(onlyExpenses, period === 'year' ? 12 : 6), [onlyExpenses, period])
 
   const categoryData = useMemo(() =>
     Object.entries(summary.byCategory)
       .map(([catId, amount]) => {
         const cat = categories.find(c => c.id === catId)
-        return { name: cat?.name ?? 'Other', value: amount, color: cat?.color ?? '#7c5cfc', icon: cat?.icon }
+        return { catId, name: cat?.name ?? 'Other', value: amount, color: cat?.color ?? '#7c5cfc', icon: cat?.icon }
       })
       .sort((a, b) => b.value - a.value)
       .slice(0, 7),
@@ -79,11 +118,23 @@ export function ReportsPage() {
   const netBalance = incomeTotal - summary.total
 
   const [lastYearExpenses, setLastYearExpenses] = useState<Expense[]>([])
+  const [lastMonthExpenses, setLastMonthExpenses] = useState<Expense[]>([])
 
   useEffect(() => {
     const r = getYearRange(subYears(new Date(), 1))
     expenseQueries.getByRange(r.start, r.end).then(setLastYearExpenses)
+    const lm = getMonthRange(subMonths(new Date(), 1))
+    expenseQueries.getByRange(lm.start, lm.end).then(setLastMonthExpenses)
   }, [])
+
+  // Category vs last month comparison
+  const lastMonthCategoryMap = useMemo(() =>
+    lastMonthExpenses.filter(e => e.type !== 'income').reduce<Record<string, number>>((acc, e) => {
+      acc[e.categoryId] = (acc[e.categoryId] ?? 0) + e.amount
+      return acc
+    }, {}),
+    [lastMonthExpenses]
+  )
 
   // Weekday vs weekend split
   const weekdayTotal = useMemo(() =>
@@ -138,7 +189,7 @@ export function ReportsPage() {
         </div>
 
         {/* Period tabs */}
-        <div className="flex gap-1 p-1 rounded-2xl mb-4" style={{ background: 'rgba(255,255,255,0.08)' }}>
+        <div className="flex gap-1 p-1 rounded-2xl mb-3" style={{ background: 'rgba(255,255,255,0.08)' }}>
           {(['month', 'quarter', 'year'] as Period[]).map(p => (
             <button
               key={p}
@@ -153,6 +204,49 @@ export function ReportsPage() {
             </button>
           ))}
         </div>
+
+        {/* Source / Group filter */}
+        {groups.length > 0 && (
+          <div className="relative mb-4">
+            <button
+              onClick={() => setSourceOpen(v => !v)}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl tap text-sm font-semibold"
+              style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.14)', color: 'rgba(240,238,255,0.9)' }}
+            >
+              <span>
+                {source === 'all' ? '📊 All sources'
+                  : source === 'personal' ? '👤 Personal only'
+                  : `👥 ${groups.find(g => g.id === source)?.name ?? 'Group'}`}
+              </span>
+              <ChevronDown size={14} style={{ transform: sourceOpen ? 'rotate(180deg)' : undefined, transition: 'transform 0.2s' }} />
+            </button>
+            {sourceOpen && (
+              <div
+                className="absolute left-0 top-full mt-1 z-20 rounded-2xl overflow-hidden min-w-[200px]"
+                style={{ background: 'var(--bg-card)', border: '1px solid var(--border2)', boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}
+              >
+                {([
+                  { id: 'all', label: '📊 All sources' },
+                  { id: 'personal', label: '👤 Personal only' },
+                  ...groups.filter(g => !g.archived).map(g => ({ id: g.id, label: `👥 ${g.name}` })),
+                ] as { id: string; label: string }[]).map((opt, i, arr) => (
+                  <button
+                    key={opt.id}
+                    onClick={() => { setSource(opt.id); setSourceOpen(false) }}
+                    className={cn(
+                      'w-full text-left px-4 py-3 text-sm font-medium tap transition-colors',
+                      source === opt.id ? 'text-brand' : 'text-1',
+                      i < arr.length - 1 ? 'border-b border-ui' : ''
+                    )}
+                    style={source === opt.id ? { background: 'rgba(124,92,252,0.1)' } : { background: 'var(--bg-card)' }}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Summary pills */}
         <div className="grid grid-cols-3 gap-2">
@@ -184,23 +278,51 @@ export function ReportsPage() {
                     <p className="text-sm font-semibold text-1">
                       {savingsRate >= 20 ? `Saving ${savingsRate.toFixed(0)}% of income` : savingsRate > 0 ? `Only saving ${savingsRate.toFixed(0)}% — try to reach 20%` : 'Spending exceeds income'}
                     </p>
-                    <p className="text-xs text-2">
-                      Net {netBalance >= 0 ? '+' : ''}{fmt(netBalance)} this {period}
-                    </p>
+                    <p className="text-xs text-2">Net {netBalance >= 0 ? '+' : ''}{fmt(netBalance)} this {period}</p>
                   </div>
                 </div>
               )}
-              {topCat && (
-                <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'rgba(124,92,252,0.06)' }}>
-                  <span className="text-xl">{topCat.icon}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-1">Top spend: {topCat.name}</p>
-                    <p className="text-xs text-2">
-                      {fmt(topCat.value)} · {summary.total > 0 ? ((topCat.value / summary.total) * 100).toFixed(0) : 0}% of total spending
-                    </p>
+              {topCat && (() => {
+                const lastMonthAmt = lastMonthCategoryMap[categoryData[0]?.catId ?? ''] ?? 0
+                const catChange = lastMonthAmt > 0 ? ((topCat.value - lastMonthAmt) / lastMonthAmt) * 100 : null
+                return (
+                  <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'rgba(124,92,252,0.06)' }}>
+                    <span className="text-xl">{topCat.icon}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-1">Top spend: {topCat.name}</p>
+                      <p className="text-xs text-2">
+                        {fmt(topCat.value)} · {summary.total > 0 ? ((topCat.value / summary.total) * 100).toFixed(0) : 0}% of total
+                        {catChange !== null && (
+                          <span style={{ color: catChange > 15 ? 'var(--expense)' : catChange < -15 ? 'var(--income)' : 'var(--text-3)' }}>
+                            {' '}({catChange > 0 ? '+' : ''}{catChange.toFixed(0)}% vs last month)
+                          </span>
+                        )}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              )}
+                )
+              })()}
+              {/* Category vs last month — show biggest increase */}
+              {period === 'month' && (() => {
+                const biggest = categoryData
+                  .map(cat => {
+                    const last = lastMonthCategoryMap[cat.catId] ?? 0
+                    const change = last > 0 ? ((cat.value - last) / last) * 100 : 0
+                    return { ...cat, change }
+                  })
+                  .filter(c => c.change > 20 && c.value > 0)
+                  .sort((a, b) => b.change - a.change)[0]
+                if (!biggest) return null
+                return (
+                  <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'rgba(255,107,107,0.07)' }}>
+                    <span className="text-xl">📈</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-1">{biggest.name} up {biggest.change.toFixed(0)}% vs last month</p>
+                      <p className="text-xs text-2">{fmt(biggest.value)} this month vs {fmt(lastMonthCategoryMap[biggest.catId ?? ''] ?? 0)} last month</p>
+                    </div>
+                  </div>
+                )
+              })()}
               {dowData[maxDowIdx].amount > 0 && (
                 <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'rgba(255,193,7,0.06)' }}>
                   <span className="text-xl">📅</span>
@@ -210,6 +332,22 @@ export function ReportsPage() {
                   </div>
                 </div>
               )}
+              {/* Daily pace insight */}
+              {period === 'month' && summary.total > 0 && (() => {
+                const today = new Date().getDate()
+                const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate()
+                const dailyPace = summary.total / today
+                const projected = dailyPace * daysInMonth
+                return (
+                  <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'rgba(77,106,154,0.08)' }}>
+                    <span className="text-xl">🔮</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-1">Projected: {fmt(projected)} this month</p>
+                      <p className="text-xs text-2">At {fmt(dailyPace)}/day pace · Day {today} of {daysInMonth}</p>
+                    </div>
+                  </div>
+                )
+              })()}
             </div>
           </div>
         )}
@@ -246,6 +384,8 @@ export function ReportsPage() {
             <div className="flex flex-col gap-3">
               {categoryData.map(cat => {
                 const pct = summary.total > 0 ? (cat.value / summary.total) * 100 : 0
+                const lastAmt = lastMonthCategoryMap[cat.catId] ?? 0
+                const delta = lastAmt > 0 ? ((cat.value - lastAmt) / lastAmt) * 100 : null
                 return (
                   <div key={cat.name} className="flex items-center gap-3">
                     <div className="w-9 h-9 icon-circle text-lg shrink-0" style={{ backgroundColor: `${cat.color}20`, borderRadius: '0.875rem' }}>
@@ -254,12 +394,25 @@ export function ReportsPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex justify-between mb-1.5">
                         <span className="text-sm font-medium text-1 truncate">{cat.name}</span>
-                        <span className="text-sm font-bold text-1">{fmt(cat.value)}</span>
+                        <div className="flex items-center gap-1.5">
+                          {delta !== null && (
+                            <span className="text-[10px] font-medium px-1 py-0.5 rounded-md" style={{
+                              color: delta > 10 ? 'var(--expense)' : delta < -10 ? 'var(--income)' : 'var(--text-3)',
+                              background: delta > 10 ? 'rgba(255,107,107,0.12)' : delta < -10 ? 'rgba(0,200,150,0.12)' : 'var(--bg-card3)',
+                            }}>
+                              {delta > 0 ? '↑' : '↓'}{Math.abs(delta).toFixed(0)}%
+                            </span>
+                          )}
+                          <span className="text-sm font-bold text-1">{fmt(cat.value)}</span>
+                        </div>
                       </div>
                       <div className="h-1.5 bg-card3 rounded-full overflow-hidden">
                         <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, backgroundColor: cat.color }} />
                       </div>
-                      <p className="text-[10px] text-3 mt-0.5">{pct.toFixed(1)}% of total</p>
+                      <p className="text-[10px] text-3 mt-0.5">
+                        {pct.toFixed(1)}% of total
+                        {lastAmt > 0 && <span className="ml-1.5 opacity-60">vs {fmt(lastAmt)} last mo</span>}
+                      </p>
                     </div>
                   </div>
                 )

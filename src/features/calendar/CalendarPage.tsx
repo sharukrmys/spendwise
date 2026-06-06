@@ -3,13 +3,15 @@ import {
   format, isSameDay, isToday, startOfMonth, endOfMonth, eachDayOfInterval,
   startOfWeek, endOfWeek, isSameMonth, addWeeks, subWeeks, addDays, isThisWeek,
 } from 'date-fns'
-import { ChevronLeft, ChevronRight, CheckSquare, Square, ShoppingCart, ListTodo } from 'lucide-react'
+import { ChevronLeft, ChevronRight, CheckSquare, Square, ShoppingCart, ListTodo, Plus } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
+import { ExpenseForm } from '@/features/expenses/ExpenseForm'
 import { ExpenseItem } from '@/features/expenses/ExpenseItem'
 import { useSettingsStore } from '@/store/useSettingsStore'
 import { useTaskStore } from '@/store/useTaskStore'
+import { useGroupStore } from '@/store/useGroupStore'
 import { expenseQueries } from '@/db/queries'
-import { formatCurrency, buildDailyHeatmap, cn } from '@/core/utils'
+import { formatCurrency, buildDailyHeatmap, cn, groupExpensesToExpenses } from '@/core/utils'
 import type { Expense, Task } from '@/core/types'
 
 type CalView = 'month' | 'week'
@@ -28,8 +30,11 @@ export function CalendarPage() {
   const [dayModalOpen, setDayModalOpen] = useState(false)
   const [dayModalTab, setDayModalTab] = useState<'expenses' | 'tasks'>('expenses')
   const [weekSelectedDay, setWeekSelectedDay] = useState<Date | null>(null)
+  const [addExpOpen, setAddExpOpen] = useState(false)
+  const [refreshTick, setRefreshTick] = useState(0)
 
   const { tasks, load: loadTasks, markDone, toggleItem } = useTaskStore()
+  const { groups, groupExpenses } = useGroupStore()
 
   useEffect(() => { loadTasks() }, [])
 
@@ -55,9 +60,32 @@ export function CalendarPage() {
       const end = addDays(weekStart, 6)
       expenseQueries.getByRange(weekStart.getTime(), end.getTime() + 86399999).then(setExpenses)
     }
-  }, [currentDate, view, weekStart])
+  }, [currentDate, view, weekStart, refreshTick])
 
-  const heatmap = useMemo(() => buildDailyHeatmap(expenses, currentDate), [expenses, currentDate])
+  const groupSpendEntries = useMemo(() => {
+    if (!settings.includeGroupSpends || !settings.myGroupName) return []
+    const rangeStart = view === 'month'
+      ? startOfMonth(currentDate).getTime()
+      : weekStart.getTime()
+    const rangeEnd = view === 'month'
+      ? endOfMonth(currentDate).getTime()
+      : addDays(weekStart, 6).getTime() + 86399999
+    // Exclude synthetics that already have a linked personal expense (same dedup as ExpensesPage/Dashboard)
+    const linkedKeys = new Set(
+      expenses
+        .filter(e => e.groupId)
+        .map(e => `${e.groupId}|${e.amount}|${Math.round(e.date / 60000)}`)
+    )
+    return groupExpensesToExpenses(groups, groupExpenses, settings.myGroupName)
+      .filter(e =>
+        e.date >= rangeStart && e.date <= rangeEnd &&
+        !linkedKeys.has(`${e.groupId}|${e.amount}|${Math.round(e.date / 60000)}`)
+      )
+  }, [settings.includeGroupSpends, settings.myGroupName, groups, groupExpenses, expenses, view, currentDate, weekStart])
+
+  const allExpenses = useMemo(() => [...expenses, ...groupSpendEntries], [expenses, groupSpendEntries])
+
+  const heatmap = useMemo(() => buildDailyHeatmap(allExpenses, currentDate), [allExpenses, currentDate])
   const maxAmount = Math.max(...Object.values(heatmap), 1)
 
   // Month grid
@@ -77,12 +105,12 @@ export function CalendarPage() {
   // Week heatmap (expense only)
   const weekHeatmap = useMemo(() => {
     const map: Record<string, number> = {}
-    expenses.filter(e => e.type !== 'income').forEach(e => {
+    allExpenses.filter(e => e.type !== 'income').forEach(e => {
       const key = format(new Date(e.date), 'yyyy-MM-dd')
       map[key] = (map[key] ?? 0) + e.amount
     })
     return map
-  }, [expenses])
+  }, [allExpenses])
 
   const weekTotal = weekDays.reduce((s, d) => s + (weekHeatmap[format(d, 'yyyy-MM-dd')] ?? 0), 0)
 
@@ -93,7 +121,7 @@ export function CalendarPage() {
     const taskCount = taskDateMap[dayStr] ?? 0
     if (amount === 0 && !isToday(day) && taskCount === 0) return
     setSelectedDay(day)
-    setDayExpenses(expenses.filter(e => isSameDay(new Date(e.date), day)))
+    setDayExpenses(allExpenses.filter(e => isSameDay(new Date(e.date), day)))
     setDayTasks(tasks.filter(t => t.dueDate && isSameDay(new Date(t.dueDate), day)))
     setDayModalTab('expenses')
     setDayModalOpen(true)
@@ -112,9 +140,9 @@ export function CalendarPage() {
   const isCurrentWeek = isThisWeek(weekStart, { weekStartsOn: settings.firstDayOfWeek })
 
   const weekFilteredExpenses = useMemo(() => {
-    if (!weekSelectedDay) return expenses.filter(e => e.type !== 'income')
-    return expenses.filter(e => e.type !== 'income' && isSameDay(new Date(e.date), weekSelectedDay))
-  }, [expenses, weekSelectedDay])
+    if (!weekSelectedDay) return allExpenses.filter(e => e.type !== 'income')
+    return allExpenses.filter(e => e.type !== 'income' && isSameDay(new Date(e.date), weekSelectedDay))
+  }, [allExpenses, weekSelectedDay])
 
   return (
     <div className="flex flex-col min-h-full bg-base">
@@ -379,6 +407,16 @@ export function CalendarPage() {
         size="md"
       >
         <div className="pb-4">
+          {/* Add expense CTA */}
+          <div className="flex items-center justify-end px-4 pt-2 pb-1">
+            <button
+              onClick={() => setAddExpOpen(true)}
+              className="flex items-center gap-1.5 text-xs font-semibold tap px-3 py-1.5 rounded-xl"
+              style={{ background: 'rgba(124,92,252,0.15)', color: 'var(--brand)' }}
+            >
+              <Plus size={12} /> Add Expense
+            </button>
+          </div>
           {/* Tab switcher — only show if both have data */}
           {(dayExpenses.length > 0 || dayTasks.length > 0) && (
             <div className="flex gap-1 p-1 mx-4 mt-2 mb-3 rounded-xl" style={{ background: 'var(--bg-card2)' }}>
@@ -432,6 +470,11 @@ export function CalendarPage() {
             )
           )}
         </div>
+      </Modal>
+
+      {/* Add expense from day modal */}
+      <Modal open={addExpOpen} onClose={() => setAddExpOpen(false)} title="Add Expense">
+        <ExpenseForm onClose={() => { setAddExpOpen(false); setRefreshTick(t => t + 1) }} />
       </Modal>
     </div>
   )

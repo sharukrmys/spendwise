@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, ArrowRight, ShieldCheck, HardDrive, ChevronDown, RefreshCw, CloudOff, Settings, Square, ShoppingCart, ListTodo, Bell } from 'lucide-react'
+import { Plus, ArrowRight, ShieldCheck, HardDrive, ChevronDown, RefreshCw, CloudOff, Settings, Square, ShoppingCart, ListTodo, Bell, X, AlertTriangle } from 'lucide-react'
 import logoSrc from '@/assets/SR.png'
 import { PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area, XAxis, Tooltip } from 'recharts'
 import { Modal } from '@/components/ui/Modal'
@@ -12,8 +12,10 @@ import { useBudgetStore } from '@/store/useBudgetStore'
 import { useSettingsStore } from '@/store/useSettingsStore'
 import { useSyncStore } from '@/store/useSyncStore'
 import { useTaskStore } from '@/store/useTaskStore'
-import { formatCurrency, getMonthRange, buildTrendData, summarizeExpenses, cn } from '@/core/utils'
-import { format, isToday, isTomorrow, isPast } from 'date-fns'
+import { useGroupStore } from '@/store/useGroupStore'
+import { toast } from '@/components/ui/Toast'
+import { formatCurrency, getMonthRange, buildTrendData, summarizeExpenses, cn, groupExpensesToExpenses } from '@/core/utils'
+import { format, isToday, isTomorrow, isPast, subMonths } from 'date-fns'
 import { expenseQueries } from '@/db/queries'
 import type { Expense, Task } from '@/core/types'
 
@@ -24,15 +26,27 @@ function getGreeting() {
   return 'Good evening'
 }
 
+const BUDGET_BANNER_KEY = 'budget-banner-dismissed'
+
 export function DashboardPage() {
   const navigate = useNavigate()
   const [addOpen, setAddOpen] = useState(false)
+  const [lastMonthTotal, setLastMonthTotal] = useState<number | null>(null)
+  const [budgetBannerDismissed, setBudgetBannerDismissed] = useState(
+    () => localStorage.getItem(BUDGET_BANNER_KEY) === format(new Date(), 'yyyy-MM')
+  )
+
+  const dismissBudgetBanner = () => {
+    localStorage.setItem(BUDGET_BANNER_KEY, format(new Date(), 'yyyy-MM'))
+    setBudgetBannerDismissed(true)
+  }
   const { expenses, load, filter, setFilter } = useExpenseStore()
   const { categories } = useCategoryStore()
   const { budgets } = useBudgetStore()
   const { settings } = useSettingsStore()
   const { user: syncUser, enabled: syncEnabled, status: syncStatus, smartSync } = useSyncStore()
   const allTasks = useTaskStore(s => s.tasks)
+  const { groups, groupExpenses } = useGroupStore()
   const [allExpenses, setAllExpenses] = useState<Expense[]>([])
   const [recurringExpenses, setRecurringExpenses] = useState<Expense[]>([])
 
@@ -40,14 +54,29 @@ export function DashboardPage() {
     const range = getMonthRange()
     setFilter({ startDate: range.start, endDate: range.end })
     useTaskStore.getState().load()
+    // Load last month total for delta display
+    const prevMonth = new Date()
+    prevMonth.setDate(1)
+    prevMonth.setMonth(prevMonth.getMonth() - 1)
+    const lastRange = getMonthRange(prevMonth)
+    expenseQueries.getByRange(lastRange.start, lastRange.end).then(exps => {
+      setLastMonthTotal(exps.filter(e => e.type !== 'income').reduce((s, e) => s + e.amount, 0))
+    })
   }, [])
 
   useEffect(() => { load() }, [filter])
 
+  // Load 6-month range for trend chart — bounded range query on indexed `date` field (fast)
+  // Re-runs when current month expenses change so new entries appear in the trend
   useEffect(() => {
-    expenseQueries.getAll().then(setAllExpenses)
-    expenseQueries.getRecurring().then(setRecurringExpenses)
+    const start = getMonthRange(subMonths(new Date(), 5)).start
+    expenseQueries.getByRange(start, Date.now()).then(setAllExpenses)
   }, [expenses])
+
+  // Recurring expenses change infrequently — load once on mount, not on every expense change
+  useEffect(() => {
+    expenseQueries.getRecurring().then(setRecurringExpenses)
+  }, [])
 
   const upcomingTasks = useMemo(() => {
     const now = Date.now()
@@ -68,8 +97,36 @@ export function DashboardPage() {
     )
   }, [allTasks])
 
-  const summary = useMemo(() => summarizeExpenses(expenses), [expenses])
-  const trendData = useMemo(() => buildTrendData(allExpenses, 6), [allExpenses])
+  // Group spend entries for this month
+  // Exclude synthetics that duplicate a personal expense already linked to the same group
+  const groupSpendEntries = useMemo(() => {
+    if (!settings.includeGroupSpends || !settings.myGroupName) return []
+    const range = getMonthRange()
+    const linkedKeys = new Set(
+      expenses
+        .filter(e => e.groupId)
+        .map(e => `${e.groupId}|${e.amount}|${Math.round(e.date / 60000)}`)
+    )
+    return groupExpensesToExpenses(groups, groupExpenses, settings.myGroupName)
+      .filter(e =>
+        e.date >= range.start && e.date <= range.end &&
+        !linkedKeys.has(`${e.groupId}|${e.amount}|${Math.round(e.date / 60000)}`)
+      )
+  }, [settings.includeGroupSpends, settings.myGroupName, groups, groupExpenses, expenses])
+
+  const summary = useMemo(() => summarizeExpenses([...expenses, ...groupSpendEntries]), [expenses, groupSpendEntries])
+
+  const trendGroupEntries = useMemo(() => {
+    if (!settings.includeGroupSpends || !settings.myGroupName) return []
+    const start = getMonthRange(subMonths(new Date(), 5)).start
+    const linkedKeys = new Set(
+      allExpenses.filter(e => e.groupId).map(e => `${e.groupId}|${e.amount}|${Math.round(e.date / 60000)}`)
+    )
+    return groupExpensesToExpenses(groups, groupExpenses, settings.myGroupName)
+      .filter(e => e.date >= start && !linkedKeys.has(`${e.groupId}|${e.amount}|${Math.round(e.date / 60000)}`))
+  }, [settings.includeGroupSpends, settings.myGroupName, groups, groupExpenses, allExpenses])
+
+  const trendData = useMemo(() => buildTrendData([...allExpenses, ...trendGroupEntries], 6), [allExpenses, trendGroupEntries])
 
   // Top categories (for list below)
   const categoryChartData = useMemo(() =>
@@ -83,14 +140,14 @@ export function DashboardPage() {
     [summary.byCategory, categories]
   )
 
-  // Budget
-  const overallBudget = budgets.find(b => !b.categoryId && b.period === 'monthly')
+  // Budget — only when the feature is enabled
+  const overallBudget = settings.enableBudgets ? budgets.find(b => !b.categoryId && b.period === 'monthly') : undefined
   const budgetPct = overallBudget ? Math.min((summary.total / overallBudget.amount) * 100, 100) : 0
 
-  // Recent 6 expenses (excluding income)
+  // Recent 6 expenses (excluding income) — includes non-linked group spend entries
   const recent = useMemo(() =>
-    [...expenses].filter(e => e.type !== 'income').sort((a, b) => b.date - a.date).slice(0, 6),
-    [expenses]
+    [...expenses, ...groupSpendEntries].filter(e => e.type !== 'income').sort((a, b) => b.date - a.date).slice(0, 6),
+    [expenses, groupSpendEntries]
   )
 
   const fmt = (v: number) => formatCurrency(v, settings.defaultCurrency, settings.showCents)
@@ -105,7 +162,7 @@ export function DashboardPage() {
         <div className="relative px-5 pb-5 pt-safe">
           {/* ── App bar: logo · sync · avatar ── */}
           <div className="flex items-center justify-between mb-4">
-            <img src={logoSrc} alt="SR" className="h-7 w-auto" />
+            <img src={logoSrc} alt="SR" className="h-7 w-auto cursor-pointer tap" onClick={() => window.location.reload()} />
             <div className="flex items-center gap-1">
               {/* Sync — always rendered */}
               <button
@@ -124,8 +181,8 @@ export function DashboardPage() {
                     style={{
                       background: syncStatus === 'syncing' ? '#7c5cfc'
                         : syncStatus === 'success' ? '#00c896'
-                        : syncStatus === 'error' ? '#ff6b6b'
-                        : 'rgba(255,255,255,0.2)',
+                          : syncStatus === 'error' ? '#ff6b6b'
+                            : 'rgba(255,255,255,0.2)',
                     }}
                   />
                 )}
@@ -223,9 +280,29 @@ export function DashboardPage() {
               <p className="text-[10px] font-semibold uppercase tracking-widest mb-0.5" style={{ color: 'rgba(200,195,240,0.5)' }}>
                 Total Spent · {format(new Date(), 'MMMM yyyy')}
               </p>
-              <p className="text-[28px] font-bold leading-tight mb-2.5" style={{ color: '#f0eeff' }}>
-                {fmt(summary.total)}
-              </p>
+              <div className="flex items-end gap-3 mb-1">
+                <p className="text-[28px] font-bold leading-tight" style={{ color: '#f0eeff' }}>
+                  {fmt(summary.total)}
+                </p>
+                <button
+                  onClick={() => setAddOpen(true)}
+                  className="mb-1 flex items-center gap-1 px-2.5 py-1 rounded-full tap text-[11px] font-bold shrink-0"
+                  style={{ background: 'rgba(124,92,252,0.25)', color: '#c4b5fd', border: '1px solid rgba(124,92,252,0.35)' }}
+                >
+                  <Plus size={11} /> Add
+                </button>
+              </div>
+              {lastMonthTotal !== null && lastMonthTotal > 0 && (() => {
+                const delta = summary.total - lastMonthTotal
+                const pct = Math.abs(Math.round((delta / lastMonthTotal) * 100))
+                const up = delta > 0
+                return (
+                  <p className="text-[11px] font-semibold mb-2" style={{ color: up ? '#ff8a8a' : '#00c896' }}>
+                    {up ? '▲' : '▼'} {fmt(Math.abs(delta))} vs last month ({pct}%)
+                  </p>
+                )
+              })()}
+              {lastMonthTotal === null || lastMonthTotal === 0 ? <div className="mb-2" /> : null}
 
               {/* Category chips — horizontal scroll */}
               {categoryChartData.length > 0 ? (
@@ -259,6 +336,47 @@ export function DashboardPage() {
       </div>
 
       <div className="px-4 py-4 flex flex-col gap-4">
+        {/* Trip mode active banner */}
+        {settings.tripMode && settings.tripCurrency && (
+          <div
+            className="flex items-center gap-3 px-4 py-3 rounded-2xl tap"
+            onClick={() => navigate('/settings')}
+            style={{ background: 'rgba(124,92,252,0.12)', border: '1px solid rgba(124,92,252,0.25)' }}
+          >
+            <span className="text-xl shrink-0">✈️</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-1">
+                {settings.tripName || 'Trip mode'} · {settings.tripCurrency}
+              </p>
+              <p className="text-xs text-3">Expenses default to {settings.tripCurrency}. Tap to manage.</p>
+            </div>
+          </div>
+        )}
+
+        {/* Budget alert banner */}
+        {overallBudget && budgetPct >= 80 && !budgetBannerDismissed && (
+          <div
+            className="flex items-center gap-3 px-4 py-3 rounded-2xl"
+            style={{
+              background: budgetPct >= 100 ? 'rgba(255,107,107,0.15)' : 'rgba(245,158,11,0.12)',
+              border: `1px solid ${budgetPct >= 100 ? 'rgba(255,107,107,0.35)' : 'rgba(245,158,11,0.3)'}`,
+            }}
+          >
+            <AlertTriangle size={18} style={{ color: budgetPct >= 100 ? '#ff6b6b' : '#f59e0b', flexShrink: 0 }} />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-1">
+                {budgetPct >= 100 ? 'Budget exceeded!' : `Budget at ${budgetPct.toFixed(0)}%`}
+              </p>
+              <p className="text-xs text-2">
+                {fmt(summary.total)} of {fmt(overallBudget.amount)} used this month
+              </p>
+            </div>
+            <button onClick={dismissBudgetBanner} className="tap shrink-0 p-1 rounded-lg" style={{ color: 'var(--text-3)' }}>
+              <X size={15} />
+            </button>
+          </div>
+        )}
+
         {/* Privacy & Security Banner — collapsible */}
         <PrivacyBanner />
 
@@ -368,7 +486,7 @@ export function DashboardPage() {
         {recent.length > 0 && (
           <div className="card overflow-hidden">
             <div className="flex items-center justify-between px-4 pt-3 pb-2">
-              <p className="text-sm font-semibold text-1">Recent Expenses</p>
+              <p className="text-sm font-semibold text-1">Recent Transactions</p>
               <button onClick={() => navigate('/expenses')} className="flex items-center gap-1 text-xs text-brand tap">
                 View all <ArrowRight size={12} />
               </button>
@@ -403,7 +521,7 @@ export function DashboardPage() {
 
 // ─── Today's Tasks Strip ──────────────────────────────────────────────────────
 function TodayTasksStrip({ tasks, onNavigate }: { tasks: Task[]; onNavigate: () => void }) {
-  const { markDone } = useTaskStore()
+  const { markDone, undoMarkDone } = useTaskStore()
   return (
     <div className="card p-4" style={{ borderLeft: '3px solid #f59e0b' }}>
       <div className="flex items-center justify-between mb-2.5">
@@ -422,7 +540,10 @@ function TodayTasksStrip({ tasks, onNavigate }: { tasks: Task[]; onNavigate: () 
         {tasks.slice(0, 3).map(task => (
           <button
             key={task.id}
-            onClick={() => markDone(task.id)}
+            onClick={() => {
+              markDone(task.id)
+              toast.undo('Task done', () => undoMarkDone(task.id))
+            }}
             className="flex items-center gap-2.5 py-1 tap rounded-lg text-left w-full"
           >
             <Square size={15} className="text-3 shrink-0" />
@@ -454,9 +575,9 @@ function UpcomingTasksSection({ tasks, currency, onNavigate }: { tasks: Task[]; 
           const d = task.dueDate ? new Date(task.dueDate) : null
           const dueLbl = d
             ? isToday(d) ? 'Today'
-            : isTomorrow(d) ? 'Tomorrow'
-            : isPast(d) ? 'Overdue'
-            : format(d, 'MMM d')
+              : isTomorrow(d) ? 'Tomorrow'
+                : isPast(d) ? 'Overdue'
+                  : format(d, 'MMM d')
             : null
           const dueColor = d && isPast(d) && !isToday(d) ? '#ff6b6b' : d && isToday(d) ? '#f59e0b' : 'var(--text-3)'
           const checklistTotal = task.type === 'checklist'
@@ -506,6 +627,7 @@ function SubscriptionStrip({
   categories: import('@/core/types').Category[]
   fmt: (v: number) => string
 }) {
+  const navigate = useNavigate()
   const upcoming = expenses
     .filter(e => e.recurrence?.nextDate)
     .sort((a, b) => (a.recurrence!.nextDate! - b.recurrence!.nextDate!))
@@ -515,9 +637,14 @@ function SubscriptionStrip({
 
   return (
     <div className="card p-4" style={{ borderLeft: '3px solid var(--brand)' }}>
-      <div className="flex items-center gap-2 mb-3">
-        <Bell size={13} style={{ color: 'var(--brand)' }} />
-        <span className="text-xs font-bold text-1 uppercase tracking-wide">Upcoming Subscriptions</span>
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <div className="flex items-center gap-2">
+          <Bell size={13} style={{ color: 'var(--brand)' }} />
+          <span className="text-xs font-bold text-1 uppercase tracking-wide">Upcoming Subscriptions</span>
+        </div>
+        <button onClick={() => navigate('/subscriptions')} className="flex items-center gap-1 text-xs text-brand tap">
+          All <ArrowRight size={10} />
+        </button>
       </div>
       <div className="flex flex-col gap-2">
         {upcoming.map(e => {

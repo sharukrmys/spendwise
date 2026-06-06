@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { Download, Upload, Trash2, ChevronRight, DollarSign, Tag, PlusCircle, RefreshCw, CloudOff, LogOut, CloudDownload, CheckCircle2, AlertCircle, Loader2, Smartphone, Palette } from 'lucide-react'
+import { Download, Upload, Trash2, ChevronRight, DollarSign, Tag, PlusCircle, RefreshCw, CloudOff, LogOut, CloudDownload, CheckCircle2, AlertCircle, Loader2, Smartphone, Palette, Plane } from 'lucide-react'
 import { usePwaInstall } from '@/hooks/usePwaInstall'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -10,6 +10,7 @@ import { useCategoryStore } from '@/store/useCategoryStore'
 import { useBudgetStore } from '@/store/useBudgetStore'
 import { useExpenseStore } from '@/store/useExpenseStore'
 import { useSyncStore } from '@/store/useSyncStore'
+import { useTaskStore } from '@/store/useTaskStore'
 import { backupQueries } from '@/db/queries'
 import { toast } from '@/components/ui/Toast'
 import { CURRENCIES, PAYMENT_METHOD_LABELS, THEME_PRESETS, ACCENT_COLORS } from '@/core/constants'
@@ -80,7 +81,6 @@ export function SettingsPage() {
 
   const [budgetModal, setBudgetModal] = useState(false)
   const [categoryModal, setCategoryModal] = useState(false)
-  const [_exportLoading, setExportLoading] = useState(false)
   const [clearConfirm, setClearConfirm] = useState(false)
   const [restoreConfirm, setRestoreConfirm] = useState(false)
   const [deleteCloudConfirm, setDeleteCloudConfirm] = useState(false)
@@ -90,7 +90,6 @@ export function SettingsPage() {
   }
 
   const handleExport = async () => {
-    setExportLoading(true)
     try {
       const data = await backupQueries.exportAll()
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
@@ -102,7 +101,6 @@ export function SettingsPage() {
       URL.revokeObjectURL(url)
       toast.success('Data exported!')
     } catch { toast.error('Export failed') }
-    setExportLoading(false)
   }
 
   const handleExportCSV = async () => {
@@ -156,7 +154,9 @@ export function SettingsPage() {
     await db.groupExpenses.clear()
     await db.budgets.clear()
     await db.tags.clear()
+    await db.tasks.clear()
     await reloadExpenses()
+    useTaskStore.getState().load()
     toast.success('All data cleared')
     setClearConfirm(false)
   }
@@ -269,13 +269,82 @@ export function SettingsPage() {
         {/* Budget */}
         <SectionLabel>Budget</SectionLabel>
         <Card padding="none">
-          <Row
-            icon={<DollarSign size={17} />}
-            label="Monthly budget"
-            sub={overallBudget ? `${formatCurrency(overallBudget.amount, settings.defaultCurrency)} / month` : 'Not set'}
-            value={overallBudget ? 'Edit' : 'Set'}
-            onClick={() => setBudgetModal(true)}
+          <ToggleRow
+            label="Enable budgets"
+            sub="Track spending against monthly limits"
+            value={settings.enableBudgets ?? true}
+            onChange={v => updateSettings({ enableBudgets: v })}
           />
+          {(settings.enableBudgets ?? true) && (
+            <>
+              <div className="border-t border-ui" />
+              <Row
+                icon={<DollarSign size={17} />}
+                label="Monthly budget"
+                sub={overallBudget ? `${formatCurrency(overallBudget.amount, settings.defaultCurrency)} / month` : 'Not set'}
+                value={overallBudget ? 'Edit' : 'Set'}
+                onClick={() => setBudgetModal(true)}
+              />
+            </>
+          )}
+        </Card>
+
+        {/* Trip Mode */}
+        <SectionLabel>Travel</SectionLabel>
+        <Card padding="none">
+          <ToggleRow
+            label="Trip mode"
+            sub="Track expenses in a foreign currency during travel"
+            value={settings.tripMode ?? false}
+            onChange={v => updateSettings({ tripMode: v })}
+          />
+          {settings.tripMode && (
+            <>
+              <div className="border-t border-ui" />
+              <div className="px-4 py-3 flex flex-col gap-3">
+                <input
+                  type="text"
+                  className="w-full px-3 py-2 rounded-xl text-sm bg-card2 border border-ui text-1 outline-none focus:border-brand"
+                  placeholder="Trip name (e.g. Bali 2026)"
+                  value={settings.tripName ?? ''}
+                  onChange={e => updateSettings({ tripName: e.target.value })}
+                />
+                <Select
+                  label="Trip currency"
+                  options={CURRENCIES.map(c => ({ value: c.code, label: `${c.symbol} ${c.code} — ${c.name}` }))}
+                  value={settings.tripCurrency ?? 'USD'}
+                  onChange={e => updateSettings({ tripCurrency: e.target.value })}
+                />
+              </div>
+            </>
+          )}
+        </Card>
+
+        {/* Groups */}
+        <SectionLabel>Groups</SectionLabel>
+        <Card padding="none">
+          <ToggleRow
+            label="Include my group payments"
+            sub="Show expenses I paid in groups alongside personal expenses"
+            value={settings.includeGroupSpends ?? false}
+            onChange={v => updateSettings({ includeGroupSpends: v })}
+          />
+          {(settings.includeGroupSpends) && (
+            <>
+              <div className="border-t border-ui" />
+              <div className="px-4 py-3">
+                <p className="text-xs font-semibold text-2 mb-1.5">My name in groups</p>
+                <p className="text-[11px] text-3 mb-2">Enter your name exactly as it appears in group member lists. Used to identify expenses where you are the payer.</p>
+                <input
+                  type="text"
+                  className="w-full px-3 py-2 rounded-xl text-sm bg-card2 border border-ui text-1 outline-none focus:border-brand"
+                  placeholder="e.g. Sharath"
+                  value={settings.myGroupName ?? ''}
+                  onChange={e => updateSettings({ myGroupName: e.target.value })}
+                />
+              </div>
+            </>
+          )}
         </Card>
 
         {/* Categories */}

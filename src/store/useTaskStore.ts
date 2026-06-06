@@ -4,6 +4,10 @@ import { taskQueries } from '@/db/queries'
 import { expenseQueries } from '@/db/queries'
 import { useSyncStore } from '@/store/useSyncStore'
 import { useSettingsStore } from '@/store/useSettingsStore'
+import { useCategoryStore } from '@/store/useCategoryStore'
+
+// Module-level map for undo-markDone (5s grace window)
+const _pendingMarkDone = new Map<string, { prevStatus: TaskStatus; timer: ReturnType<typeof setTimeout> }>()
 
 interface TaskFilter {
   status?: TaskStatus
@@ -21,7 +25,8 @@ interface TaskState {
   updateTask(id: string, updates: Partial<Task>): Promise<void>
   deleteTask(id: string): Promise<void>
   toggleItem(taskId: string, itemId: string): Promise<void>
-  markDone(id: string): Promise<void>
+  markDone(id: string): void
+  undoMarkDone(id: string): void
   convertToExpense(taskId: string): Promise<void>
   setFilter(f: Partial<TaskFilter>): void
 
@@ -81,12 +86,32 @@ export const useTaskStore = create<TaskState>()((set, get) => ({
     useSyncStore.getState().scheduleSync()
   },
 
-  markDone: async (id) => {
-    await taskQueries.update(id, { status: 'done' })
+  markDone: (id) => {
+    const task = get().tasks.find(t => t.id === id)
+    const prevStatus = task?.status ?? 'pending'
+    // Optimistic update
     set(s => ({
       tasks: s.tasks.map(t => t.id === id ? { ...t, status: 'done', updatedAt: Date.now() } : t),
     }))
-    useSyncStore.getState().scheduleSync()
+    // Schedule actual DB write after 5s (allows undo)
+    const timer = setTimeout(async () => {
+      _pendingMarkDone.delete(id)
+      await taskQueries.update(id, { status: 'done' })
+      useSyncStore.getState().scheduleSync()
+    }, 5000)
+    _pendingMarkDone.set(id, { prevStatus, timer })
+  },
+
+  undoMarkDone: (id) => {
+    const pending = _pendingMarkDone.get(id)
+    if (!pending) return
+    clearTimeout(pending.timer)
+    _pendingMarkDone.delete(id)
+    set(s => ({
+      tasks: s.tasks.map(t =>
+        t.id === id ? { ...t, status: pending.prevStatus, updatedAt: Date.now() } : t
+      ),
+    }))
   },
 
   convertToExpense: async (taskId) => {
@@ -94,6 +119,7 @@ export const useTaskStore = create<TaskState>()((set, get) => ({
     if (!task) return
 
     const { settings } = useSettingsStore.getState()
+    const { categories } = useCategoryStore.getState()
     const currency = task.currency ?? settings.defaultCurrency
 
     // Calculate amount: checklist sum or task amount
@@ -108,11 +134,15 @@ export const useTaskStore = create<TaskState>()((set, get) => ({
 
     if (amount <= 0) return
 
+    // Fallback to first 'other/misc' category or first available category
+    const fallbackCat = categories.find(c => /other|misc|general|uncategor/i.test(c.name)) ?? categories[0]
+    const categoryId = task.categoryId ?? fallbackCat?.id ?? ''
+
     const expense = await expenseQueries.add({
       type: 'expense',
       amount,
       currency,
-      categoryId: task.categoryId ?? '',
+      categoryId: categoryId,
       tags: task.tags ?? [],
       notes: task.title,
       date: Date.now(),

@@ -129,12 +129,49 @@ Or connect your GitHub repo at [netlify.com](https://netlify.com) for automatic 
 
 ### Option 2: Vercel (Free)
 
+#### First-time setup
+
 ```bash
-npm run build
-npx vercel --prod
+# Install Vercel CLI globally
+npm i -g vercel
+
+# Link the project to Vercel (one-time)
+cd expense-manager
+vercel link
 ```
 
-Or import your repo at [vercel.com](https://vercel.com).
+#### Deploy
+
+```bash
+# Preview deploy (safe — does not affect production URL)
+vercel
+
+# Production deploy (promotes to live URL)
+vercel --prod
+```
+
+#### Useful commands
+
+```bash
+# List recent deployments
+vercel ls
+
+# Inspect a specific deployment
+vercel inspect <deployment-url>
+
+# View live logs
+vercel logs <deployment-url>
+
+# Pull environment variables to .env.local
+vercel env pull
+
+# Remove a deployment
+vercel remove <deployment-url>
+```
+
+> **Tip:** Running `vercel` without `--prod` always creates a safe preview URL — great for testing before going live.
+
+Or import your repo at [vercel.com](https://vercel.com) for automatic deploys on every push.
 
 **Free tier:** Unlimited bandwidth for personal projects, HTTPS, custom domains.
 
@@ -251,21 +288,3 @@ MIT
 <p align="center">
   Built with ❤️ by <strong>SR</strong>
 </p>
-
---
-
-Vercel doesn't have a "stop/start" toggle like a server — it's serverless static hosting, so:
-
-No running costs — your app is just static files on a CDN. There's no server running. You only consume bandwidth when someone visits.
-Free tier has no idle charges — you're not billed for time, only for bandwidth and build minutes.
-If you want to take it offline temporarily:
-
-cd /Users/appify/codebase/reactapp/expense-manager && npx vercel deploy --prod --prebuilt 2>&1
-
-
-# Disable the production deployment (makes URL return 404)
-cd /Users/appify/codebase/reactapp/expense-manager
-npx vercel rm expense-manager --safe
-
-npx vercel deploy --prod --prebuilt
-vercel --prod --yes 2>&1

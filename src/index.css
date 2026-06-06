@@ -31,6 +31,14 @@
     margin: 0;
     padding: 0;
   }
+
+  button, a, [role="button"] {
+    touch-action: manipulation;
+  }
+
+  input, textarea, select {
+    font-size: 1rem;
+  }
   html {
     font-family: var(--font-sans);
   }
@@ -233,7 +241,7 @@
     padding: 0.875rem 1rem;
     width: 100%;
     outline: none;
-    font-size: 0.9375rem;
+    font-size: 1rem;
     transition:
       border-color 0.15s,
       box-shadow 0.15s;
@@ -347,6 +355,7 @@
   .tap {
     -webkit-tap-highlight-color: transparent;
     user-select: none;
+    touch-action: manipulation;
   }
   .scrollbar-none {
     scrollbar-width: none;

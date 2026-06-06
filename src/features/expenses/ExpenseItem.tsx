@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { Trash2, Pencil, RefreshCw, ChevronRight } from 'lucide-react'
+import { Trash2, Pencil, RefreshCw, ChevronRight, Users } from 'lucide-react'
 import { formatCurrency, formatDate, cn } from '@/core/utils'
 import { PAYMENT_METHOD_ICONS } from '@/core/constants'
 import { useExpenseStore } from '@/store/useExpenseStore'
 import { useCategoryStore } from '@/store/useCategoryStore'
 import { useSettingsStore } from '@/store/useSettingsStore'
+import { useGroupStore } from '@/store/useGroupStore'
 import { Modal } from '@/components/ui/Modal'
 import { SwipeableRow } from '@/components/ui/SwipeableRow'
 import { ExpenseForm } from './ExpenseForm'
@@ -18,73 +19,84 @@ interface ExpenseItemProps {
 }
 
 export function ExpenseItem({ expense, compact }: ExpenseItemProps) {
-  const { deleteExpense, load } = useExpenseStore()
+  const { deleteExpense, undoDeleteExpense } = useExpenseStore()
   const { getCategoryById } = useCategoryStore()
   const { settings } = useSettingsStore()
+  const { groups, deleteGroupExpense } = useGroupStore()
   const [editOpen, setEditOpen] = useState(false)
   const [detailOpen, setDetailOpen] = useState(false)
-  const [deleteConfirm, setDeleteConfirm] = useState(false)
 
   const category = getCategoryById(expense.categoryId)
+  const linkedGroup = expense.groupId ? groups.find(g => g.id === expense.groupId) : null
+  const isSynthetic = expense.id.startsWith('grp-')
   const isIncome = expense.type === 'income'
   const iconBg = isIncome ? 'rgba(0,200,150,0.15)' : `${category?.color ?? '#7c5cfc'}18`
   const icon = isIncome ? '💰' : (category?.icon ?? '📦')
 
   const handleDelete = async () => {
     haptics.delete()
-    await deleteExpense(expense.id)
-    await load()
-    toast.success('Deleted')
-    setDeleteConfirm(false)
+    if (isSynthetic && expense.groupId) {
+      await deleteGroupExpense(expense.groupId, expense.id.slice(4))
+      toast.success('Removed from group')
+    } else {
+      deleteExpense(expense.id)
+      toast.undo('Expense deleted', () => undoDeleteExpense(expense.id))
+    }
     setDetailOpen(false)
   }
 
   return (
     <>
       <SwipeableRow
-        onDelete={() => setDeleteConfirm(true)}
-        onEdit={() => setEditOpen(true)}
+        onDelete={handleDelete}
+        onEdit={isSynthetic ? undefined : () => setEditOpen(true)}
       >
-      <button
-        onClick={() => setDetailOpen(true)}
-        className={cn(
-          'flex items-center gap-3 w-full tap transition-colors hover:bg-card2',
-          compact ? 'py-2.5 px-4' : 'py-3.5 px-4'
-        )}
-      >
-        {/* Icon */}
-        <div
-          className="icon-circle shrink-0 text-lg"
-          style={{ width: 44, height: 44, borderRadius: '0.875rem', background: iconBg }}
-        >
-          <span>{icon}</span>
-          {expense.isRecurring && (
-            <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-brand flex items-center justify-center">
-              <RefreshCw size={7} className="text-white" />
-            </span>
+        <button
+          onClick={() => setDetailOpen(true)}
+          className={cn(
+            'flex items-center gap-3 w-full tap transition-colors hover:bg-card2',
+            compact ? 'py-2.5 px-4' : 'py-3.5 px-4'
           )}
-        </div>
+        >
+          {/* Icon */}
+          <div
+            className="icon-circle shrink-0 text-lg"
+            style={{ width: 44, height: 44, borderRadius: '0.875rem', background: iconBg }}
+          >
+            <span>{icon}</span>
+            {expense.isRecurring && (
+              <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-brand flex items-center justify-center">
+                <RefreshCw size={7} className="text-white" />
+              </span>
+            )}
+          </div>
 
-        {/* Info */}
-        <div className="flex-1 min-w-0 text-left">
-          <p className="text-sm font-semibold text-1 truncate leading-tight">
-            {expense.notes || (isIncome ? 'Income' : (category?.name ?? 'Expense'))}
-          </p>
-          <p className="text-xs text-2 mt-0.5 flex items-center gap-1.5 truncate">
-            <span>{PAYMENT_METHOD_ICONS[expense.paymentMethod]}</span>
-            <span>{formatDate(expense.date, 'h:mm a')}</span>
-            {!compact && <span className="text-3">· {category?.name}</span>}
-          </p>
-        </div>
+          {/* Info */}
+          <div className="flex-1 min-w-0 text-left">
+            <p className="text-sm font-semibold text-1 truncate leading-tight">
+              {expense.notes || (isIncome ? 'Income' : (category?.name ?? 'Expense'))}
+            </p>
+            <p className="text-xs text-2 mt-0.5 flex items-center gap-1.5 truncate">
+              <span>{PAYMENT_METHOD_ICONS[expense.paymentMethod]}</span>
+              <span>{formatDate(expense.date, 'h:mm a')}</span>
+              {!compact && <span className="text-3">· {category?.name}</span>}
+              {linkedGroup && (
+                <span className="flex items-center gap-0.5 shrink-0" style={{ color: '#7c5cfc' }}>
+                  · <Users size={10} />
+                  <span className="truncate max-w-[80px]">{linkedGroup.name}</span>
+                </span>
+              )}
+            </p>
+          </div>
 
-        {/* Amount */}
-        <div className="flex items-center gap-1 shrink-0">
-          <span className={cn('text-sm font-bold', isIncome ? 'text-income' : 'text-expense')}>
-            {isIncome ? '+' : '-'}{formatCurrency(expense.amount, expense.currency, settings.showCents)}
-          </span>
-          <ChevronRight size={14} className="text-3" />
-        </div>
-      </button>
+          {/* Amount */}
+          <div className="flex items-center gap-1 shrink-0">
+            <span className={cn('text-sm font-bold', isIncome ? 'text-income' : 'text-expense')}>
+              {isIncome ? '+' : '-'}{formatCurrency(expense.amount, expense.currency, settings.showCents)}
+            </span>
+            <ChevronRight size={14} className="text-3" />
+          </div>
+        </button>
       </SwipeableRow>
 
       {/* Detail sheet */}
@@ -117,10 +129,11 @@ export function ExpenseItem({ expense, compact }: ExpenseItemProps) {
           <div className="card2 rounded-2xl divide-y divide-ui mb-4">
             {[
               { label: 'Date & time', value: formatDate(expense.date, 'EEE, MMM d, yyyy · h:mm a') },
-              { label: 'Payment',     value: `${PAYMENT_METHOD_ICONS[expense.paymentMethod]} ${expense.paymentMethod.replace('_', ' ')}` },
-              { label: 'Currency',    value: expense.currency },
+              { label: 'Payment', value: `${PAYMENT_METHOD_ICONS[expense.paymentMethod]} ${expense.paymentMethod.replace('_', ' ')}` },
+              { label: 'Currency', value: expense.currency },
               ...(expense.notes ? [{ label: 'Notes', value: expense.notes }] : []),
               ...(expense.isRecurring ? [{ label: 'Recurring', value: `Every ${expense.recurrence?.interval ?? 'month'}` }] : []),
+              ...(linkedGroup ? [{ label: 'Group', value: `👥 ${linkedGroup.name}` }] : []),
             ].map(row => (
               <div key={row.label} className="flex items-center justify-between px-4 py-3">
                 <span className="text-sm text-2">{row.label}</span>
@@ -131,17 +144,19 @@ export function ExpenseItem({ expense, compact }: ExpenseItemProps) {
 
           {/* Actions */}
           <div className="flex gap-2.5">
+            {!isSynthetic && (
+              <button
+                onClick={() => { setDetailOpen(false); setTimeout(() => setEditOpen(true), 100) }}
+                className="btn btn-ghost flex-1 text-sm py-3"
+              >
+                <Pencil size={15} /> Edit
+              </button>
+            )}
             <button
-              onClick={() => { setDetailOpen(false); setTimeout(() => setEditOpen(true), 100) }}
-              className="btn btn-ghost flex-1 text-sm py-3"
-            >
-              <Pencil size={15} /> Edit
-            </button>
-            <button
-              onClick={() => { setDetailOpen(false); setTimeout(() => setDeleteConfirm(true), 100) }}
+              onClick={handleDelete}
               className="btn btn-danger flex-1 text-sm py-3"
             >
-              <Trash2 size={15} /> Delete
+              <Trash2 size={15} /> {isSynthetic ? 'Remove from group' : 'Delete'}
             </button>
           </div>
         </div>
@@ -150,21 +165,6 @@ export function ExpenseItem({ expense, compact }: ExpenseItemProps) {
       {/* Edit modal */}
       <Modal open={editOpen} onClose={() => setEditOpen(false)} title="Edit Transaction">
         <ExpenseForm onClose={() => setEditOpen(false)} expense={expense} />
-      </Modal>
-
-      {/* Delete confirm */}
-      <Modal open={deleteConfirm} onClose={() => setDeleteConfirm(false)} title="Delete?" size="sm">
-        <div className="px-5 py-4 pb-6">
-          <p className="text-sm text-2 mb-5 text-center">
-            Remove <strong className="text-1">{formatCurrency(expense.amount, expense.currency)}</strong> from <strong className="text-1">{category?.name}</strong>? This can't be undone.
-          </p>
-          <div className="flex gap-2.5">
-            <button className="btn btn-ghost flex-1 py-3 text-sm" onClick={() => setDeleteConfirm(false)}>Cancel</button>
-            <button className="btn flex-1 py-3 text-sm text-white font-semibold rounded-2xl" style={{ background: 'linear-gradient(135deg, #ff6b6b, #ee3c3c)' }} onClick={handleDelete}>
-              Delete
-            </button>
-          </div>
-        </div>
       </Modal>
     </>
   )

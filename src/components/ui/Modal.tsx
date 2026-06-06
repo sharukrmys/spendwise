@@ -60,7 +60,7 @@ export function Modal({ open, onClose, title, children, size = 'md', showClose =
         )}
         <div
           className="overflow-y-auto flex-1 overscroll-contain"
-          style={{ WebkitOverflowScrolling: 'touch', paddingBottom: 'env(safe-area-inset-bottom)' }}
+          style={{ WebkitOverflowScrolling: 'touch', paddingBottom: 'env(safe-area-inset-bottom)', overflowX: 'hidden' }}
         >
           {children}
         </div>

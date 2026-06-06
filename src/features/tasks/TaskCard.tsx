@@ -6,6 +6,7 @@ import { useCategoryStore } from '@/store/useCategoryStore'
 import { useSettingsStore } from '@/store/useSettingsStore'
 import { formatCurrency, cn } from '@/core/utils'
 import { haptics } from '@/core/haptics'
+import { toast } from '@/components/ui/Toast'
 import { SwipeableRow } from '@/components/ui/SwipeableRow'
 import { useConfetti } from '@/components/ui/Confetti'
 import type { Task } from '@/core/types'
@@ -32,7 +33,7 @@ function dueDateLabel(ts: number): { label: string; color: string } {
 }
 
 export function TaskCard({ task, onEdit, onConvert, compact = false }: TaskCardProps) {
-  const { markDone, deleteTask, toggleItem } = useTaskStore()
+  const { markDone, deleteTask, toggleItem, undoMarkDone } = useTaskStore()
   const { categories } = useCategoryStore()
   const { settings } = useSettingsStore()
   const [showItems, setShowItems] = useState(task.type === 'checklist' && (task.items?.length ?? 0) > 0)
@@ -79,7 +80,13 @@ export function TaskCard({ task, onEdit, onConvert, compact = false }: TaskCardP
           {/* Done toggle */}
           <button
             className="tap shrink-0 mt-0.5"
-            onClick={() => { if (!isDone) { haptics.success(); markDone(task.id) } }}
+            onClick={() => {
+              if (!isDone) {
+                haptics.success()
+                markDone(task.id)
+                toast.undo('Task done', () => undoMarkDone(task.id))
+              }
+            }}
             aria-label={isDone ? 'Done' : 'Mark done'}
           >
             {isDone

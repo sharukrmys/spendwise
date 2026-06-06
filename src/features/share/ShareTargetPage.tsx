@@ -3,10 +3,11 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Modal } from '@/components/ui/Modal'
 import { ExpenseForm } from '@/features/expenses/ExpenseForm'
 import { useExpenseStore } from '@/store/useExpenseStore'
+import { parseSMS, merchantToNotes } from '@/core/smsParser'
 
 /**
  * Handles incoming shares from the PWA share_target.
- * Parses amount from shared text/title and pre-fills the expense form.
+ * Uses parseSMS for robust extraction of amount, merchant, and notes.
  */
 export function ShareTargetPage() {
   const [params] = useSearchParams()
@@ -14,11 +15,12 @@ export function ShareTargetPage() {
   const { load } = useExpenseStore()
   const [open, setOpen] = useState(true)
 
-  // Extract a numeric amount from shared text (e.g. "₹250" or "250.00")
   const raw = params.get('text') ?? params.get('title') ?? ''
-  const match = raw.match(/[\d,]+\.?\d*/)
-  const sharedAmount = match ? parseFloat(match[0].replace(/,/g, '')) : undefined
-  const sharedNotes = raw.replace(/[\d,]+\.?\d*/, '').trim() || undefined
+  const parsed = parseSMS(raw)
+  const sharedAmount = parsed.amount
+  const sharedNotes = parsed.merchant
+    ? merchantToNotes(parsed.merchant)
+    : (raw.replace(/[\d,]+\.?\d*/g, '').trim() || undefined)
 
   useEffect(() => {
     if (!open) navigate('/', { replace: true })
