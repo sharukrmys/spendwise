@@ -37,6 +37,7 @@
 Most expense apps require an account. Your financial data lives on someone else's server, gets analysed, monetised, or leaked. The alternative — a local spreadsheet — has no charts, no mobile UX, and no intelligence.
 
 SR Expense takes a third path: a **production-quality mobile app with zero backend**. All data lives in the browser's IndexedDB. Cloud backup goes to **your own Google Drive**, not mine. The server only serves static files.
+
 <!--
 ---
 
@@ -57,6 +58,7 @@ SR Expense takes a third path: a **production-quality mobile app with zero backe
   </tr>
 </table>
 -->
+
 ---
 
 ## Architecture
@@ -81,56 +83,56 @@ SR Expense takes a third path: a **production-quality mobile app with zero backe
 
 ### Key design decisions
 
-| Decision | Alternative considered | Why this way |
-|----------|----------------------|--------------|
-| **IndexedDB via Dexie** | SQLite WASM, localStorage | Indexed queries on `date`, `categoryId`, `isRecurring` — real relational-style filtering without a server. localStorage is sync and has a 5 MB cap |
-| **Zustand over Redux** | Redux Toolkit, Jotai | One store = one file. No boilerplate, no providers, direct selector subscriptions. Persist middleware for instant rehydration |
-| **Google Drive `appdata` scope** | My own S3/DB, Firebase | User's data stays in user's Drive. The app has zero access to their regular Drive. No GDPR surface. No data retention liability |
-| **PWA over React Native** | Expo, Capacitor | Single codebase, zero app store friction, installable on iOS/Android, offline via Workbox service worker |
-| **Code-split lazy routes** | One bundle | Dashboard loads in ~150ms. Heavy pages (Reports, Groups) only download when navigated to |
-| **Framer Motion** | CSS animations | Declarative `AnimatePresence` handles route transitions and modal enter/exit without manual lifecycle management |
+| Decision                         | Alternative considered    | Why this way                                                                                                                                       |
+| -------------------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **IndexedDB via Dexie**          | SQLite WASM, localStorage | Indexed queries on `date`, `categoryId`, `isRecurring` — real relational-style filtering without a server. localStorage is sync and has a 5 MB cap |
+| **Zustand over Redux**           | Redux Toolkit, Jotai      | One store = one file. No boilerplate, no providers, direct selector subscriptions. Persist middleware for instant rehydration                      |
+| **Google Drive `appdata` scope** | My own S3/DB, Firebase    | User's data stays in user's Drive. The app has zero access to their regular Drive. No GDPR surface. No data retention liability                    |
+| **PWA over React Native**        | Expo, Capacitor           | Single codebase, zero app store friction, installable on iOS/Android, offline via Workbox service worker                                           |
+| **Code-split lazy routes**       | One bundle                | Dashboard loads in ~150ms. Heavy pages (Reports, Groups) only download when navigated to                                                           |
+| **Framer Motion**                | CSS animations            | Declarative `AnimatePresence` handles route transitions and modal enter/exit without manual lifecycle management                                   |
 
 ---
 
 ## Features
 
-| | Feature | What it does |
-|-|---------|-------------|
-| 📊 | **Dashboard** | Monthly summary, donut chart by category, 6-month trend sparkline, budget ring, upcoming tasks & subscriptions |
-| 💸 | **Expenses** | Full CRUD, fuzzy search (Fuse.js), filters by category/payment/type, swipe-to-delete, month navigation |
-| 📈 | **Reports** | Monthly/quarterly/yearly analytics, AI-style insights ("You spend most on Wednesdays"), XLSX + CSV export |
-| 📅 | **Calendar** | Heatmap calendar — daily spend intensity at a glance |
-| 👥 | **Groups** | Split bills with friends, per-member balances, settle-up tracking, real-time sync via shared Drive files |
-| 💰 | **Budgets** | Monthly limits with live progress bar, alert banners at 80% and 100% |
-| 🔁 | **Subscriptions** | Recurring expense tracker — shows next renewal date, monthly cost total |
-| ✅ | **Tasks / SpendPlan** | To-dos and shopping checklists with estimated costs; one-tap convert to expense |
-| ⚡ | **Quick Add** | Standalone `/quick-add` route — bookmark as a home screen shortcut for numpad-first entry |
-| ☁️ | **Google Drive Sync** | OAuth2 backup to user's own Drive appdata folder; optional auto-sync |
-| ✈️ | **Trip Mode** | Temporary currency switch for travel — one tap on, auto-off |
-| 🎨 | **Themes** | 7 themes (Dark, Light, AMOLED, Midnight, Forest, Rose Gold, System) + 8 accent colours |
-| 📱 | **PWA** | Installable on iOS/Android, offline-first, App Badging API, Share Target handler |
-| 🔔 | **Notifications** | Budget alerts + overdue task reminders via Web Push |
+|     | Feature               | What it does                                                                                                   |
+| --- | --------------------- | -------------------------------------------------------------------------------------------------------------- |
+| 📊  | **Dashboard**         | Monthly summary, donut chart by category, 6-month trend sparkline, budget ring, upcoming tasks & subscriptions |
+| 💸  | **Expenses**          | Full CRUD, fuzzy search (Fuse.js), filters by category/payment/type, swipe-to-delete, month navigation         |
+| 📈  | **Reports**           | Monthly/quarterly/yearly analytics, AI-style insights ("You spend most on Wednesdays"), XLSX + CSV export      |
+| 📅  | **Calendar**          | Heatmap calendar — daily spend intensity at a glance                                                           |
+| 👥  | **Groups**            | Split bills with friends, per-member balances, settle-up tracking, real-time sync via shared Drive files       |
+| 💰  | **Budgets**           | Monthly limits with live progress bar, alert banners at 80% and 100%                                           |
+| 🔁  | **Subscriptions**     | Recurring expense tracker — shows next renewal date, monthly cost total                                        |
+| ✅  | **Tasks / SpendPlan** | To-dos and shopping checklists with estimated costs; one-tap convert to expense                                |
+| ⚡  | **Quick Add**         | Standalone `/quick-add` route — bookmark as a home screen shortcut for numpad-first entry                      |
+| ☁️  | **Google Drive Sync** | OAuth2 backup to user's own Drive appdata folder; optional auto-sync                                           |
+| ✈️  | **Trip Mode**         | Temporary currency switch for travel — one tap on, auto-off                                                    |
+| 🎨  | **Themes**            | 7 themes (Dark, Light, AMOLED, Midnight, Forest, Rose Gold, System) + 8 accent colours                         |
+| 📱  | **PWA**               | Installable on iOS/Android, offline-first, App Badging API, Share Target handler                               |
+| 🔔  | **Notifications**     | Budget alerts + overdue task reminders via Web Push                                                            |
 
 ---
 
 ## Tech stack
 
-| Layer | Choice | Version |
-|-------|--------|---------|
-| UI framework | React | 19 |
-| Language | TypeScript | 6.0 |
-| Build | Vite | 8 |
-| Styling | Tailwind CSS | 4 |
-| State | Zustand (with persist) | 5 |
-| Local DB | Dexie.js (IndexedDB) | 4 |
-| Charts | Recharts | 3 |
-| Animation | Framer Motion | 12 |
-| Routing | React Router | 7 |
-| Search | Fuse.js | 7 |
-| Icons | Lucide React | latest |
-| Date utils | date-fns | 4 |
-| PWA | vite-plugin-pwa (Workbox) | latest |
-| Hosting | Vercel (CDN, static) | — |
+| Layer        | Choice                    | Version |
+| ------------ | ------------------------- | ------- |
+| UI framework | React                     | 19      |
+| Language     | TypeScript                | 6.0     |
+| Build        | Vite                      | 8       |
+| Styling      | Tailwind CSS              | 4       |
+| State        | Zustand (with persist)    | 5       |
+| Local DB     | Dexie.js (IndexedDB)      | 4       |
+| Charts       | Recharts                  | 3       |
+| Animation    | Framer Motion             | 12      |
+| Routing      | React Router              | 7       |
+| Search       | Fuse.js                   | 7       |
+| Icons        | Lucide React              | latest  |
+| Date utils   | date-fns                  | 4       |
+| PWA          | vite-plugin-pwa (Workbox) | latest  |
+| Hosting      | Vercel (CDN, static)      | —       |
 
 ---
 
@@ -193,12 +195,12 @@ npm run dev          # → http://localhost:5173
 
 ### Scripts
 
-| Command | What it does |
-|---------|-------------|
-| `npm run dev` | Dev server with HMR |
-| `npm run build` | TypeScript check + Vite production build |
-| `npm run preview` | Serve the production build locally |
-| `npm run lint` | ESLint |
+| Command                        | What it does                             |
+| ------------------------------ | ---------------------------------------- |
+| `npm run dev`                  | Dev server with HMR                      |
+| `npm run build`                | TypeScript check + Vite production build |
+| `npm run preview`              | Serve the production build locally       |
+| `npm run lint`                 | ESLint                                   |
 | `node capture-screenshots.mjs` | Re-generate all README screenshots + GIF |
 
 ### Optional: Google Drive sync
@@ -232,13 +234,13 @@ npm run build          # output in dist/
 
 ## Privacy model
 
-| Claim | How it's enforced |
-|-------|------------------|
-| No account required | No auth system exists |
-| No data sent to any server | Zero API calls from the app (except optional Drive) |
-| No analytics / telemetry | No tracking scripts anywhere in the codebase |
+| Claim                         | How it's enforced                                                                                    |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------- |
+| No account required           | No auth system exists                                                                                |
+| No data sent to any server    | Zero API calls from the app (except optional Drive)                                                  |
+| No analytics / telemetry      | No tracking scripts anywhere in the codebase                                                         |
 | Google Drive sync = your data | App uses `drive.appdata` scope — a private folder invisible in Drive UI. Only the user can access it |
-| Offline-first | Workbox service worker caches all assets on first load |
+| Offline-first                 | Workbox service worker caches all assets on first load                                               |
 
 ---
 
