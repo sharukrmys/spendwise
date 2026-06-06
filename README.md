@@ -1,337 +1,255 @@
 <p align="center">
-  <img src=".github/sr-logo.png" alt="SR Logo" width="280" />
+  <img src=".github/sr-logo.png" alt="SR Expense" width="200" />
 </p>
 
 <h1 align="center">SR Expense — SpendWise</h1>
 
 <p align="center">
-  <strong>Offline-first personal finance tracker — private, powerful, mobile-ready.</strong><br/>
-  Built by <strong>SR</strong> &nbsp;·&nbsp; No backend &nbsp;·&nbsp; No sign-up &nbsp;·&nbsp; Your data stays on your device.
+  <strong>A fully offline, zero-backend personal finance PWA.</strong><br/>
+  No sign-up. No server. No data leaves your device.
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white" alt="React 19" />
-  <img src="https://img.shields.io/badge/TypeScript-6.0-3178C6?logo=typescript&logoColor=white" alt="TypeScript" />
-  <img src="https://img.shields.io/badge/Vite-8-646CFF?logo=vite&logoColor=white" alt="Vite 8" />
-  <img src="https://img.shields.io/badge/Tailwind-4-38BDF8?logo=tailwindcss&logoColor=white" alt="Tailwind 4" />
-  <img src="https://img.shields.io/badge/PWA-Installable-7C5CFC?logo=pwa&logoColor=white" alt="PWA" />
+  <a href="https://expense-manager-in.vercel.app" target="_blank">
+    <img src="https://img.shields.io/badge/▶  Live Demo-expense--manager--in.vercel.app-7C5CFC?style=for-the-badge&logo=vercel&logoColor=white" alt="Live Demo" />
+  </a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white" />
+  <img src="https://img.shields.io/badge/TypeScript-6.0-3178C6?logo=typescript&logoColor=white" />
+  <img src="https://img.shields.io/badge/Vite-8-646CFF?logo=vite&logoColor=white" />
+  <img src="https://img.shields.io/badge/Tailwind-4-38BDF8?logo=tailwindcss&logoColor=white" />
+  <img src="https://img.shields.io/badge/PWA-Installable-7C5CFC" />
+  <img src="https://img.shields.io/badge/Offline-First-00C896" />
 </p>
 
 ---
 
-## App Tour
-
 <p align="center">
-  <img src=".github/screenshots/app-tour.gif" alt="SR Expense App Tour" width="280" />
+  <img src=".github/screenshots/app-tour.gif" alt="App Tour" width="300" />
 </p>
 
 ---
 
-<!--
+## The idea
+
+Most expense apps require an account. Your financial data lives on someone else's server, gets analysed, monetised, or leaked. The alternative — a local spreadsheet — has no charts, no mobile UX, and no intelligence.
+
+SR Expense takes a third path: a **production-quality mobile app with zero backend**. All data lives in the browser's IndexedDB. Cloud backup goes to **your own Google Drive**, not mine. The server only serves static files.
+
+---
+
 ## Screenshots
 
 <table>
   <tr>
-    <td align="center"><img src=".github/screenshots/01-dashboard.png" width="180" alt="Dashboard"/><br/><sub><b>Dashboard</b></sub></td>
-    <td align="center"><img src=".github/screenshots/02-dashboard-trends.png" width="180" alt="Spending Trends"/><br/><sub><b>Spending Trends</b></sub></td>
-    <td align="center"><img src=".github/screenshots/03-expenses.png" width="180" alt="Expense List"/><br/><sub><b>Expense List</b></sub></td>
+    <td align="center"><img src=".github/screenshots/01-dashboard.png" width="160" /><br/><sub><b>Dashboard</b></sub></td>
+    <td align="center"><img src=".github/screenshots/02-dashboard-trends.png" width="160" /><br/><sub><b>Trends & Budget</b></sub></td>
+    <td align="center"><img src=".github/screenshots/03-expenses.png" width="160" /><br/><sub><b>Expense List</b></sub></td>
+    <td align="center"><img src=".github/screenshots/04-reports.png" width="160" /><br/><sub><b>Reports</b></sub></td>
   </tr>
   <tr>
-    <td align="center"><img src=".github/screenshots/04-reports.png" width="180" alt="Reports"/><br/><sub><b>Reports & Analytics</b></sub></td>
-    <td align="center"><img src=".github/screenshots/05-calendar.png" width="180" alt="Calendar"/><br/><sub><b>Calendar View</b></sub></td>
-    <td align="center"><img src=".github/screenshots/06-tasks.png" width="180" alt="Tasks"/><br/><sub><b>Tasks & Checklists</b></sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src=".github/screenshots/07-subscriptions.png" width="180" alt="Subscriptions"/><br/><sub><b>Subscriptions</b></sub></td>
-    <td align="center"><img src=".github/screenshots/09-settings.png" width="180" alt="Settings"/><br/><sub><b>Settings</b></sub></td>
-    <td align="center"><img src=".github/screenshots/10-add-expense.png" width="180" alt="Add Expense"/><br/><sub><b>Add Expense</b></sub></td>
+    <td align="center"><img src=".github/screenshots/06-tasks.png" width="160" /><br/><sub><b>Tasks / SpendPlan</b></sub></td>
+    <td align="center"><img src=".github/screenshots/07-subscriptions.png" width="160" /><br/><sub><b>Subscriptions</b></sub></td>
+    <td align="center"><img src=".github/screenshots/09-settings.png" width="160" /><br/><sub><b>Settings (7 themes)</b></sub></td>
+    <td align="center"><img src=".github/screenshots/10-add-expense.png" width="160" /><br/><sub><b>Quick Add (NumPad)</b></sub></td>
   </tr>
 </table>
 
 ---
--->
+
+## Architecture
+
+```
+┌──────────────────────────────────────────────────────┐
+│                    Browser (PWA)                      │
+│                                                       │
+│  React 19 + React Router 7 (SPA, code-split routes)  │
+│         │                                             │
+│  Zustand stores  ──────→  Dexie.js (IndexedDB)        │
+│  (in-memory state)         (persistent storage)       │
+│         │                                             │
+│  Optional: Google Drive API (user's own Drive)        │
+│         └── appdata folder (private, not in UI)       │
+│         └── drive.file scope (shared group files)     │
+└──────────────────────────────────────────────────────┘
+         │
+         │  Vercel CDN (serves static files only)
+         │  No API routes. No database. No secrets.
+```
+
+### Key design decisions
+
+| Decision | Alternative considered | Why this way |
+|----------|----------------------|--------------|
+| **IndexedDB via Dexie** | SQLite WASM, localStorage | Indexed queries on `date`, `categoryId`, `isRecurring` — real relational-style filtering without a server. localStorage is sync and has a 5 MB cap |
+| **Zustand over Redux** | Redux Toolkit, Jotai | One store = one file. No boilerplate, no providers, direct selector subscriptions. Persist middleware for instant rehydration |
+| **Google Drive `appdata` scope** | My own S3/DB, Firebase | User's data stays in user's Drive. The app has zero access to their regular Drive. No GDPR surface. No data retention liability |
+| **PWA over React Native** | Expo, Capacitor | Single codebase, zero app store friction, installable on iOS/Android, offline via Workbox service worker |
+| **Code-split lazy routes** | One bundle | Dashboard loads in ~150ms. Heavy pages (Reports, Groups) only download when navigated to |
+| **Framer Motion** | CSS animations | Declarative `AnimatePresence` handles route transitions and modal enter/exit without manual lifecycle management |
+
+---
 
 ## Features
 
-| Feature               | Description                                                                                  |
-| --------------------- | -------------------------------------------------------------------------------------------- |
-| **Dashboard**         | Net balance, income/expense summaries, donut chart, spending trend (6 months), budget ring   |
-| **Expenses**          | Full CRUD with search, filters by category/payment method, month navigation, swipe-to-delete |
-| **Categories**        | 15 built-in categories with emoji icons, custom category support                             |
-| **Reports**           | Monthly/quarterly/yearly analytics, insights, charts, XLSX & CSV export                      |
-| **Calendar**          | Visual calendar view showing daily spending with heat indicators                             |
-| **Groups**            | Split expenses with friends — add members, track balances, settle up, Google Drive sync      |
-| **Budgets**           | Monthly budget tracking with visual progress bars and 80%/100% alerts                        |
-| **Subscriptions**     | Recurring expense tracker — upcoming renewals, monthly commitment total                      |
-| **Tasks / SpendPlan** | To-do tasks and shopping checklists with estimated costs, convert-to-expense                 |
-| **Quick Add**         | Full-screen NumPad page — bookmark as home screen shortcut for instant entry                 |
-| **Google Drive Sync** | OAuth backup/restore to your own Google Drive — no app server ever sees your data            |
-| **Settings**          | 7 themes (Dark/Light/AMOLED/Midnight/Forest/Rose/System), 8 accent colours, 10 currencies    |
-| **Trip Mode**         | Switch to a travel currency with one tap — auto-reverts when you're back                     |
-| **PWA**               | Install as native app on iOS & Android — works fully offline, App Badging API                |
-| **Offline-first**     | All data stored in IndexedDB (Dexie.js) — no server needed, ever                             |
-| **Notifications**     | Budget alerts and overdue task reminders via Web Push                                        |
-| **Haptics**           | Native haptic feedback on mobile                                                             |
-| **Onboarding**        | First-run wizard: pick currency, set budget, done                                            |
+| | Feature | What it does |
+|-|---------|-------------|
+| 📊 | **Dashboard** | Monthly summary, donut chart by category, 6-month trend sparkline, budget ring, upcoming tasks & subscriptions |
+| 💸 | **Expenses** | Full CRUD, fuzzy search (Fuse.js), filters by category/payment/type, swipe-to-delete, month navigation |
+| 📈 | **Reports** | Monthly/quarterly/yearly analytics, AI-style insights ("You spend most on Wednesdays"), XLSX + CSV export |
+| 📅 | **Calendar** | Heatmap calendar — daily spend intensity at a glance |
+| 👥 | **Groups** | Split bills with friends, per-member balances, settle-up tracking, real-time sync via shared Drive files |
+| 💰 | **Budgets** | Monthly limits with live progress bar, alert banners at 80% and 100% |
+| 🔁 | **Subscriptions** | Recurring expense tracker — shows next renewal date, monthly cost total |
+| ✅ | **Tasks / SpendPlan** | To-dos and shopping checklists with estimated costs; one-tap convert to expense |
+| ⚡ | **Quick Add** | Standalone `/quick-add` route — bookmark as a home screen shortcut for numpad-first entry |
+| ☁️ | **Google Drive Sync** | OAuth2 backup to user's own Drive appdata folder; optional auto-sync |
+| ✈️ | **Trip Mode** | Temporary currency switch for travel — one tap on, auto-off |
+| 🎨 | **Themes** | 7 themes (Dark, Light, AMOLED, Midnight, Forest, Rose Gold, System) + 8 accent colours |
+| 📱 | **PWA** | Installable on iOS/Android, offline-first, App Badging API, Share Target handler |
+| 🔔 | **Notifications** | Budget alerts + overdue task reminders via Web Push |
 
-## Tech Stack
+---
 
-| Layer          | Technology                |
-| -------------- | ------------------------- |
-| **Framework**  | React 19 + TypeScript 6.0 |
-| **Build**      | Vite 8                    |
-| **Styling**    | Tailwind CSS 4            |
-| **State**      | Zustand 5                 |
-| **Database**   | Dexie.js (IndexedDB)      |
-| **Charts**     | Recharts 3                |
-| **Icons**      | Lucide React              |
-| **Routing**    | React Router 7            |
-| **Animations** | Framer Motion             |
-| **Search**     | Fuse.js                   |
-| **PWA**        | vite-plugin-pwa (Workbox) |
-| **Date utils** | date-fns                  |
+## Tech stack
 
-## Project Structure
+| Layer | Choice | Version |
+|-------|--------|---------|
+| UI framework | React | 19 |
+| Language | TypeScript | 6.0 |
+| Build | Vite | 8 |
+| Styling | Tailwind CSS | 4 |
+| State | Zustand (with persist) | 5 |
+| Local DB | Dexie.js (IndexedDB) | 4 |
+| Charts | Recharts | 3 |
+| Animation | Framer Motion | 12 |
+| Routing | React Router | 7 |
+| Search | Fuse.js | 7 |
+| Icons | Lucide React | latest |
+| Date utils | date-fns | 4 |
+| PWA | vite-plugin-pwa (Workbox) | latest |
+| Hosting | Vercel (CDN, static) | — |
+
+---
+
+## Project structure
 
 ```
-expense-manager/
-├── public/                     # Static assets & PWA icons
-├── src/
-│   ├── components/
-│   │   ├── layout/             # AppLayout, BottomNav, PageHeader
-│   │   └── ui/                 # Button, Card, Modal, Input, Toast, NumPad, OnboardingWizard, etc.
-│   ├── core/
-│   │   ├── constants.ts        # Default categories, currencies, settings
-│   │   ├── types.ts            # TypeScript interfaces
-│   │   ├── utils.ts            # Currency formatting, date helpers
-│   │   ├── haptics.ts          # Native haptic feedback
-│   │   └── smsParser.ts        # SMS transaction parser
-│   ├── db/
-│   │   ├── schema.ts           # Dexie DB schema, seed defaults
-│   │   └── queries.ts          # Database query functions
-│   ├── features/
-│   │   ├── dashboard/          # Home page with summary widgets
-│   │   ├── expenses/           # Expense list, form, item components
-│   │   ├── reports/            # Analytics & charts
-│   │   ├── calendar/           # Calendar view
-│   │   ├── groups/             # Group expense splitting
-│   │   ├── tasks/              # SpendPlan — to-dos & checklists
-│   │   ├── subscriptions/      # Recurring expense tracker
-│   │   ├── quick-add/          # Standalone NumPad entry page
-│   │   ├── share/              # PWA share target handler
-│   │   └── settings/           # App settings
-│   ├── hooks/
-│   │   └── usePwaInstall.ts    # PWA install prompt hook
-│   ├── services/
-│   │   ├── googleSync.ts       # Google Drive OAuth backup/restore
-│   │   ├── exportXlsx.ts       # Excel export
-│   │   ├── notifications.ts    # Web Push notifications
-│   │   └── recurringProcessor.ts # Auto-process recurring expenses
-│   ├── store/                  # Zustand stores (expenses, categories, budgets, groups, settings, tasks, sync)
-│   ├── App.tsx                 # Root component with routing
-│   ├── main.tsx                # Entry point
-│   └── index.css               # Global styles, theme variables
-├── index.html
-├── vite.config.ts
-├── tsconfig.json
-└── package.json
+src/
+├── components/
+│   ├── layout/          # AppLayout, BottomNav, PageHeader
+│   └── ui/              # 12 reusable primitives: Button, Card, Modal,
+│                        #   Input, Toast, NumPad, DraggableFab, etc.
+├── core/
+│   ├── types.ts         # All domain types (Expense, Budget, Task, Group…)
+│   ├── constants.ts     # DEFAULT_SETTINGS, DEFAULT_CATEGORIES, CURRENCIES
+│   ├── utils.ts         # Pure functions: formatCurrency, buildTrendData…
+│   ├── haptics.ts       # Vibration API wrapper
+│   └── smsParser.ts     # Regex-based SMS transaction extractor
+├── db/
+│   ├── schema.ts        # Dexie schema + seedDefaults()
+│   └── queries.ts       # All DB access — no raw Dexie in components
+├── features/            # Feature-sliced: each folder owns its page + logic
+│   ├── dashboard/
+│   ├── expenses/
+│   ├── reports/
+│   ├── calendar/
+│   ├── groups/
+│   ├── tasks/
+│   ├── subscriptions/
+│   ├── quick-add/
+│   ├── share/
+│   └── settings/
+├── hooks/               # usePwaInstall
+├── services/            # Side-effect modules (no React)
+│   ├── googleSync.ts    # GIS OAuth + Drive API
+│   ├── exportXlsx.ts    # xlsx workbook generation
+│   ├── notifications.ts # Web Push permission + dispatch
+│   └── recurringProcessor.ts  # Cron-style recurring expense engine
+└── store/               # One Zustand store per domain
+    ├── useExpenseStore.ts
+    ├── useCategoryStore.ts
+    ├── useBudgetStore.ts
+    ├── useGroupStore.ts
+    ├── useSettingsStore.ts  # persisted to localStorage
+    ├── useTaskStore.ts
+    └── useSyncStore.ts
 ```
 
-## Prerequisites
+> **Convention:** Components never import from `db/` directly. All DB access goes through `store/` or `services/`. `queries.ts` is the single source of truth for data access logic.
 
-- **Node.js** >= 18
-- **npm** >= 9 (or pnpm / yarn)
+---
 
-## Getting Started
+## Getting started
 
 ```bash
-# Clone the repo
 git clone https://github.com/sharukrmys/spendwise.git
 cd spendwise
-
-# Install dependencies
 npm install
-
-# Start dev server
-npm run dev
+npm run dev          # → http://localhost:5173
 ```
 
-The app will be available at **http://localhost:5173**
+### Scripts
 
-### Available Scripts
+| Command | What it does |
+|---------|-------------|
+| `npm run dev` | Dev server with HMR |
+| `npm run build` | TypeScript check + Vite production build |
+| `npm run preview` | Serve the production build locally |
+| `npm run lint` | ESLint |
+| `node capture-screenshots.mjs` | Re-generate all README screenshots + GIF |
 
-| Command           | Description                       |
-| ----------------- | --------------------------------- |
-| `npm run dev`     | Start development server with HMR |
-| `npm run build`   | Type-check + production build     |
-| `npm run preview` | Preview production build locally  |
-| `npm run lint`    | Run ESLint                        |
-
-### Environment Variables (optional)
-
-Create `.env.local` to enable Google Drive sync:
+### Optional: Google Drive sync
 
 ```bash
-VITE_GOOGLE_CLIENT_ID=your_google_oauth_client_id
+cp .env.example .env.local
+# Add your Google OAuth client ID:
+# VITE_GOOGLE_CLIENT_ID=your_client_id_here
 ```
 
-See `.env.example` for the full list of available variables.
+Create a project at [console.cloud.google.com](https://console.cloud.google.com), enable the Drive API, add your app URL to **Authorised JavaScript origins**. No server-side credentials needed — it's all client OAuth.
 
-## Deployment
+---
 
-### Option 1: Vercel (Recommended)
+## Deploy
+
+The app is a static SPA — deploy anywhere that serves HTML.
 
 ```bash
-# Install Vercel CLI globally
-npm i -g vercel
+# Vercel (recommended)
+npx vercel --prod
 
-# Link and deploy (one-time setup)
-cd expense-manager
-vercel link
+# Netlify
+npm run build && npx netlify-cli deploy --prod --dir=dist
 
-# Preview deploy
-vercel
-
-# Production deploy
-vercel --prod
+# Any static host
+npm run build          # output in dist/
 ```
 
-Or import your repo at [vercel.com](https://vercel.com) for automatic deploys on every push.
+---
 
-**Free tier:** Unlimited bandwidth for personal projects, HTTPS, custom domains.
+## Privacy model
 
-### Option 2: Netlify
+| Claim | How it's enforced |
+|-------|------------------|
+| No account required | No auth system exists |
+| No data sent to any server | Zero API calls from the app (except optional Drive) |
+| No analytics / telemetry | No tracking scripts anywhere in the codebase |
+| Google Drive sync = your data | App uses `drive.appdata` scope — a private folder invisible in Drive UI. Only the user can access it |
+| Offline-first | Workbox service worker caches all assets on first load |
 
-```bash
-npm run build
-npx netlify-cli deploy --prod --dir=dist
-```
+---
 
-Or connect your GitHub repo at [netlify.com](https://netlify.com) for automatic deploys on push.
+## Roadmap
 
-### Option 3: Cloudflare Pages
-
-```bash
-npm run build
-npx wrangler pages deploy dist --project-name=sr-expense
-```
-
-### Option 4: GitHub Pages
-
-1. Push to GitHub
-2. Go to **Settings → Pages → Source: GitHub Actions**
-3. Add this workflow as `.github/workflows/deploy.yml`:
-
-```yaml
-name: Deploy to GitHub Pages
-on:
-  push:
-    branches: [main]
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - run: npm ci && npm run build
-        working-directory: expense-manager
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: expense-manager/dist
-      - id: deployment
-        uses: actions/deploy-pages@v4
-```
-
-> **Note:** For GitHub Pages, set `base: '/<repo-name>/'` in `vite.config.ts` if not deploying to a custom domain.
-
-### Option 5: AWS S3 + CloudFront
-
-```bash
-npm run build
-aws s3 sync dist/ s3://your-bucket-name --delete
-aws cloudfront create-invalidation --distribution-id YOUR_DIST_ID --paths "/*"
-```
-
-Enable **Static Website Hosting** on the S3 bucket and set both index and error document to `index.html`.
-
-## Install as Mobile App (PWA)
-
-Once deployed to any HTTPS URL:
-
-### iOS (Safari)
-
-1. Open the app URL in Safari
-2. Tap the **Share** button (↑)
-3. Tap **"Add to Home Screen"**
-4. Tap **Add**
-
-### Android (Chrome)
-
-1. Open the app URL in Chrome
-2. Tap the **⋮** menu
-3. Tap **"Install app"** or **"Add to Home Screen"**
-
-The app will appear on your home screen as a native app — full screen, no browser bar, works offline.
-
-### Quick Add Shortcut
-
-Bookmark `/quick-add` as a separate home screen shortcut for instant, numpad-first expense entry without opening the full app.
-
-## Configuration
-
-### Default Currency
-
-Edit `src/core/constants.ts` → `DEFAULT_SETTINGS.defaultCurrency` (default: `INR`).
-
-Available: USD, EUR, GBP, INR, JPY, CAD, AUD, CHF, SGD, AED.
-
-### Theme
-
-7 built-in themes: **Dark**, **Light**, **AMOLED**, **Midnight Blue**, **Forest**, **Rose Gold**, **System**. Change in Settings or edit `DEFAULT_SETTINGS.theme`.
-
-### Accent Colour
-
-8 accent colours: Violet, Blue, Cyan, Green, Rose, Orange, Pink, Gold. Customisable per-session in Settings.
-
-### Categories
-
-15 built-in categories. Add custom ones via Settings → Categories. Stored locally in IndexedDB.
-
-## Google Drive Sync
-
-1. Create a Google Cloud project and enable the Drive API
-2. Create an OAuth 2.0 client ID (Web application type)
-3. Add your app URL to **Authorised JavaScript origins**
-4. Set `VITE_GOOGLE_CLIENT_ID` in `.env.local`
-5. Connect via Settings → Cloud Sync → Connect Google Drive
-
-Your data is backed up to a private **App Data Folder** in your own Drive (invisible in Drive UI). Groups use regular Drive files for sharing.
-
-## Data & Privacy
-
-- **Zero backend** — all data is stored in your browser's IndexedDB
-- **No accounts** — no sign-up, no login
-- **No tracking** — no analytics, no telemetry
-- **Offline-first** — works without internet after first load
-- **Your data, your device** — nothing leaves the browser unless you explicitly connect Google Drive
-- **Google Drive sync** — goes exclusively to **your** Drive, never to an app server
-
-> **Backup:** Use Settings → Export to download a JSON backup. Import it on any device to restore.
-
-## License
-
-MIT
+See [ROADMAP.md](ROADMAP.md) for planned features.
 
 ---
 
 <p align="center">
-  Built with ❤️ by <strong>SR</strong>
+  Built by <strong>SR</strong> &nbsp;·&nbsp;
+  <a href="https://expense-manager-in.vercel.app">Live demo</a> &nbsp;·&nbsp;
+  MIT License
 </p>
