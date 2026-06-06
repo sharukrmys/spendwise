@@ -37,7 +37,7 @@
 Most expense apps require an account. Your financial data lives on someone else's server, gets analysed, monetised, or leaked. The alternative — a local spreadsheet — has no charts, no mobile UX, and no intelligence.
 
 SR Expense takes a third path: a **production-quality mobile app with zero backend**. All data lives in the browser's IndexedDB. Cloud backup goes to **your own Google Drive**, not mine. The server only serves static files.
-
+<!--
 ---
 
 ## Screenshots
@@ -56,7 +56,7 @@ SR Expense takes a third path: a **production-quality mobile app with zero backe
     <td align="center"><img src=".github/screenshots/10-add-expense.png" width="160" /><br/><sub><b>Quick Add (NumPad)</b></sub></td>
   </tr>
 </table>
-
+-->
 ---
 
 ## Architecture
