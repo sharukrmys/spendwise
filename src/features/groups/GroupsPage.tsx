@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useRef } from 'react'
-import { Plus, Users, ArrowRight, UserPlus, Trash2, ChevronLeft, Share2, RefreshCw, Link, LogIn, Copy, Check, ShieldOff, CloudOff, BarChart2, Download, Camera, Hash, X, ChevronDown, Upload } from 'lucide-react'
+import { Plus, Users, ArrowRight, UserPlus, Trash2, ChevronLeft, ChevronRight, Share2, RefreshCw, Link, LogIn, Copy, Check, ShieldOff, CloudOff, BarChart2, Download, Camera, Hash, X, ChevronDown, Upload } from 'lucide-react'
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
@@ -14,7 +14,7 @@ import type { Group, GroupExpense, PaymentMethod, Tag } from '@/core/types'
 import { tagQueries, expenseQueries } from '@/db/queries'
 import { useExpenseStore } from '@/store/useExpenseStore'
 import { toast } from '@/components/ui/Toast'
-import { format } from 'date-fns'
+import { format, startOfMonth, endOfMonth, addMonths, subMonths, isSameMonth } from 'date-fns'
 import { exportGroupData } from '@/services/exportXlsx'
 import { ExpenseForm } from '@/features/expenses/ExpenseForm'
 
@@ -332,6 +332,7 @@ function GroupDetail({ group, onBack }: { group: Group; onBack: () => void }) {
   const [shareModalOpen, setShareModalOpen] = useState(false)
   const [groupSettingsOpen, setGroupSettingsOpen] = useState(false)
   const [tab, setTab] = useState<'expenses' | 'balances' | 'reports'>('expenses')
+  const [selectedMonth, setSelectedMonth] = useState(() => startOfMonth(new Date()))
   const isSyncing = syncingGroupId === group.id
   const [exporting, setExporting] = useState(false)
 
@@ -354,6 +355,19 @@ function GroupDetail({ group, onBack }: { group: Group; onBack: () => void }) {
     [...(groupExpenses[group.id] ?? [])].sort((a, b) => b.date - a.date),
     [groupExpenses[group.id]]
   )
+
+  const monthExpenses = useMemo(() => {
+    const start = startOfMonth(selectedMonth).getTime()
+    const end = endOfMonth(selectedMonth).getTime()
+    return expenses.filter(e => e.date >= start && e.date <= end)
+  }, [expenses, selectedMonth])
+
+  const monthTotal = monthExpenses
+    .filter(e => e.notes !== '__settlement__')
+    .reduce((s, e) => s + e.amount, 0)
+
+  const isCurrentMonth = isSameMonth(selectedMonth, new Date())
+
   const balances = getBalances(group.id)
   const totalSpent = expenses.reduce((s, e) => s + e.amount, 0)
 
@@ -540,23 +554,53 @@ function GroupDetail({ group, onBack }: { group: Group; onBack: () => void }) {
         </div>
 
         {tab === 'expenses' ? (
-          expenses.length === 0 ? (
-            <EmptyState icon="💸" title="No expenses yet" description="Add the first expense to start tracking." />
-          ) : (
-            <div className="flex flex-col gap-3">
-              {expenses.map(e => (
-                <GroupExpenseCard
-                  key={e.id} expense={e} members={group.members} currency={group.currency}
-                  categories={categories}
-                  onEdit={() => setEditExpense(e)}
-                  onDelete={() => deleteGroupExpense(group.id, e.id)}
-                  onSettle={(memberId) => settleUp(group.id, e.id, memberId)}
-                  onUnsettle={(memberId) => unsettle(group.id, e.id, memberId)}
-                  onInvalidate={e.notes === '__settlement__' ? () => updateGroupExpense(group.id, e.id, { invalidated: true }) : undefined}
-                />
-              ))}
+          <>
+            {/* Month navigator */}
+            <div className="flex items-center justify-between px-1">
+              <button
+                onClick={() => setSelectedMonth(m => subMonths(m, 1))}
+                className="w-9 h-9 flex items-center justify-center rounded-xl tap"
+                style={{ background: 'var(--bg-card2)' }}
+              >
+                <ChevronLeft size={16} className="text-2" />
+              </button>
+              <div className="text-center">
+                <p className="text-sm font-semibold text-1">{format(selectedMonth, 'MMMM yyyy')}</p>
+                <p className="text-xs text-3">
+                  {monthExpenses.filter(e => e.notes !== '__settlement__').length} expense{monthExpenses.filter(e => e.notes !== '__settlement__').length !== 1 ? 's' : ''}
+                  {monthTotal > 0 && <span className="ml-1.5 font-semibold text-expense">· {formatCurrency(monthTotal, group.currency)}</span>}
+                </p>
+              </div>
+              <button
+                onClick={() => setSelectedMonth(m => addMonths(m, 1))}
+                disabled={isCurrentMonth}
+                className="w-9 h-9 flex items-center justify-center rounded-xl tap"
+                style={{ background: 'var(--bg-card2)', opacity: isCurrentMonth ? 0.3 : 1 }}
+              >
+                <ChevronRight size={16} className="text-2" />
+              </button>
             </div>
-          )
+
+            {monthExpenses.length === 0 ? (
+              expenses.length === 0
+                ? <EmptyState icon="💸" title="No expenses yet" description="Add the first expense to start tracking." />
+                : <EmptyState icon="📅" title={`No expenses in ${format(selectedMonth, 'MMMM')}`} description="Try navigating to a different month." />
+            ) : (
+              <div className="flex flex-col gap-3">
+                {monthExpenses.map(e => (
+                  <GroupExpenseCard
+                    key={e.id} expense={e} members={group.members} currency={group.currency}
+                    categories={categories}
+                    onEdit={() => setEditExpense(e)}
+                    onDelete={() => deleteGroupExpense(group.id, e.id)}
+                    onSettle={(memberId) => settleUp(group.id, e.id, memberId)}
+                    onUnsettle={(memberId) => unsettle(group.id, e.id, memberId)}
+                    onInvalidate={e.notes === '__settlement__' ? () => updateGroupExpense(group.id, e.id, { invalidated: true }) : undefined}
+                  />
+                ))}
+              </div>
+            )}
+          </>
         ) : tab === 'balances' ? (
           <BalancesView
             balances={balances}
