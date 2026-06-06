@@ -20,10 +20,10 @@ const rightLinks = [
 ]
 
 const moreItems = [
-  { to: '/calendar', icon: Calendar, label: 'Calendar', emoji: '📅' },
-  { to: '/tasks', icon: ListTodo, label: 'Tasks', emoji: '✅' },
-  { to: '/groups', icon: Users, label: 'Groups', emoji: '👥' },
-  { to: '/settings', icon: Settings, label: 'Settings', emoji: '⚙️' },
+  { to: '/calendar', icon: Calendar, label: 'Calendar', color: '#06b6d4', bg: 'rgba(6,182,212,0.15)' },
+  { to: '/tasks', icon: ListTodo, label: 'Tasks', color: '#22c55e', bg: 'rgba(34,197,94,0.15)' },
+  { to: '/groups', icon: Users, label: 'Groups', color: '#a855f7', bg: 'rgba(168,85,247,0.15)' },
+  { to: '/settings', icon: Settings, label: 'Settings', color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' },
 ]
 
 export function BottomNav({ onAddExpense, onAddTask, onSearch }: BottomNavProps) {
@@ -64,10 +64,12 @@ export function BottomNav({ onAddExpense, onAddTask, onSearch }: BottomNavProps)
                 <button
                   key={item.to}
                   onClick={() => handleMoreNav(item.to)}
-                  className="flex flex-col items-center gap-1.5 py-3 px-2 rounded-xl tap transition-all relative"
+                  className="flex flex-col items-center gap-2 py-3 px-2 rounded-xl tap transition-all relative"
                   style={{ background: 'var(--bg-card2)' }}
                 >
-                  <span className="text-2xl leading-none">{item.emoji}</span>
+                  <div className="w-10 h-10 rounded-2xl flex items-center justify-center" style={{ background: item.bg }}>
+                    <item.icon size={20} style={{ color: item.color }} strokeWidth={2} />
+                  </div>
                   <span className="text-[10px] font-semibold text-2">{item.label}</span>
                   {item.label === 'Tasks' && overdueCount > 0 && (
                     <span

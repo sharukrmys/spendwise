@@ -11,7 +11,7 @@ interface NumPadProps {
   label?: string
 }
 
-const KEYS = ['7', '8', '9', '4', '5', '6', '1', '2', '3', '⌫', '0', '.']
+const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '⌫', '0', '.']
 
 export function NumPad({ value, onChange, onConfirm, onClose, currencySymbol = '₹', label }: NumPadProps) {
   const [display, setDisplay] = useState(value || '')
@@ -68,16 +68,13 @@ export function NumPad({ value, onChange, onConfirm, onClose, currencySymbol = '
           {/* Amount display */}
           <div className="px-6 pt-5 pb-4 text-center" style={{ borderBottom: '1px solid var(--border)' }}>
             {label && <p className="text-xs font-semibold text-3 uppercase tracking-widest mb-2">{label}</p>}
-            <div className="flex items-end justify-center gap-1">
-              <span
-                className="text-3xl font-bold pb-1"
-                style={{ color: isValid ? 'var(--text-3)' : 'var(--text-3)' }}
-              >
+            <div className="flex items-baseline justify-center gap-2">
+              <span className="text-2xl font-bold" style={{ color: 'var(--text-3)' }}>
                 {currencySymbol}
               </span>
               <span
-                className="text-5xl font-bold leading-none"
-                style={{ color: isValid ? 'var(--text)' : 'var(--text-3)', minWidth: '4ch', textAlign: 'right' }}
+                className="text-5xl font-bold leading-none tabular-nums"
+                style={{ color: isValid ? 'var(--text)' : 'var(--text-3)' }}
               >
                 {display || '0'}
               </span>
