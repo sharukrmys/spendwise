@@ -111,7 +111,9 @@ function loadGIS(): Promise<void> {
 // `error_callback` with popup_closed can fire WHILE the token postMessage is
 // still in-flight, so we ignore it and rely on `callback` + a timeout instead.
 
-function requestNewToken(): Promise<string> {
+// prompt='' → silent re-auth using existing Google session (no popup if already consented)
+// prompt='select_account consent' → explicit sign-in with account picker + consent screen
+function requestNewToken(prompt = ''): Promise<string> {
   return new Promise(async (resolve, reject) => {
     if (!CLIENT_ID) {
       reject(new Error('VITE_GOOGLE_CLIENT_ID is not set in .env.local'))
@@ -121,11 +123,13 @@ function requestNewToken(): Promise<string> {
 
     let done = false
 
+    // Silent refresh resolves quickly; explicit sign-in can take longer
+    const timeoutMs = prompt === '' ? 10_000 : 60_000
     const timeout = setTimeout(() => {
       if (done) return
       done = true
-      reject(new Error('Sign-in timed out — please try again.'))
-    }, 60_000)
+      reject(new Error(prompt === '' ? 'silent_refresh_failed' : 'Sign-in timed out — please try again.'))
+    }, timeoutMs)
 
     const client = window.google!.accounts.oauth2.initTokenClient({
       client_id: CLIENT_ID,
@@ -141,8 +145,6 @@ function requestNewToken(): Promise<string> {
         storeToken(resp.access_token, resp.expires_in)
         resolve(resp.access_token)
       },
-      // Only handle popup_failed_to_open (blocked) — ignore popup_closed
-      // since that fires normally when popup closes after successful auth.
       error_callback: (err) => {
         if (err.type === 'popup_failed_to_open') {
           if (done) return
@@ -150,13 +152,10 @@ function requestNewToken(): Promise<string> {
           clearTimeout(timeout)
           reject(new Error('Popup was blocked — please allow popups for this site.'))
         }
-        // popup_closed: intentionally not rejected here.
-        // The token callback fires after popup closes in a successful flow.
-        // If it never arrives, the 60s timeout above will catch it.
       },
     })
 
-    client.requestAccessToken({ prompt: 'select_account consent' })
+    client.requestAccessToken({ prompt })
   })
 }
 
@@ -166,7 +165,14 @@ export function handleOAuthCallback(): boolean { return false }
 async function getToken(): Promise<string> {
   loadCachedToken()
   if (isValid()) return _token!
-  return requestNewToken()
+  // Try silent re-auth first (no popup if user still has an active Google session)
+  try {
+    return await requestNewToken('')
+  } catch (e) {
+    // Silent failed (session truly expired / revoked) → fall through to explicit sign-in
+    if ((e as Error).message !== 'silent_refresh_failed') throw e
+    return requestNewToken('select_account')
+  }
 }
 
 // ─── Drive REST helpers ──────────────────────────────────────────────────────
@@ -240,7 +246,7 @@ async function findBackupFileId(): Promise<string | null> {
 
 /** Trigger OAuth popup, return signed-in user. */
 export async function signIn(): Promise<GoogleUser> {
-  const token = await requestNewToken()
+  const token = await requestNewToken('select_account consent')
   const infoRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
     headers: { Authorization: `Bearer ${token}` },
   })
