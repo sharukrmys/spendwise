@@ -2,7 +2,7 @@
   <img src=".github/sr-logo.png" alt="SR Logo" width="280" />
 </p>
 
-<h1 align="center">SR Expense</h1>
+<h1 align="center">SR Expense — SpendWise</h1>
 
 <p align="center">
   <strong>Offline-first personal finance tracker — private, powerful, mobile-ready.</strong><br/>
@@ -19,21 +19,58 @@
 
 ---
 
+## App Tour
+
+<p align="center">
+  <img src=".github/screenshots/app-tour.gif" alt="SR Expense App Tour" width="280" />
+</p>
+
+---
+
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center"><img src=".github/screenshots/01-dashboard.png" width="180" alt="Dashboard"/><br/><sub><b>Dashboard</b></sub></td>
+    <td align="center"><img src=".github/screenshots/02-dashboard-trends.png" width="180" alt="Spending Trends"/><br/><sub><b>Spending Trends</b></sub></td>
+    <td align="center"><img src=".github/screenshots/03-expenses.png" width="180" alt="Expense List"/><br/><sub><b>Expense List</b></sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src=".github/screenshots/04-reports.png" width="180" alt="Reports"/><br/><sub><b>Reports & Analytics</b></sub></td>
+    <td align="center"><img src=".github/screenshots/05-calendar.png" width="180" alt="Calendar"/><br/><sub><b>Calendar View</b></sub></td>
+    <td align="center"><img src=".github/screenshots/06-tasks.png" width="180" alt="Tasks"/><br/><sub><b>Tasks & Checklists</b></sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src=".github/screenshots/07-subscriptions.png" width="180" alt="Subscriptions"/><br/><sub><b>Subscriptions</b></sub></td>
+    <td align="center"><img src=".github/screenshots/09-settings.png" width="180" alt="Settings"/><br/><sub><b>Settings</b></sub></td>
+    <td align="center"><img src=".github/screenshots/10-add-expense.png" width="180" alt="Add Expense"/><br/><sub><b>Add Expense</b></sub></td>
+  </tr>
+</table>
+
+---
+
 ## Features
 
-| Feature           | Description                                                                          |
-| ----------------- | ------------------------------------------------------------------------------------ |
-| **Dashboard**     | Net balance, income/expense summaries, donut chart, spending trend, budget progress  |
-| **Expenses**      | Full CRUD with search, filters by category/payment method, month navigation          |
-| **Categories**    | 15 built-in categories with emoji icons, custom category support                     |
-| **Reports**       | Monthly/quarterly/yearly analytics with charts and daily averages                    |
-| **Calendar**      | Visual calendar view showing daily spending with heat indicators                     |
-| **Groups**        | Split expenses with friends — add members, track balances, settle up                 |
-| **Budgets**       | Monthly budget tracking with visual progress bars                                    |
-| **Settings**      | Dark/light/system theme, currency selection (10 currencies), payment method defaults |
-| **PWA**           | Install as native app on iOS & Android — works fully offline                         |
-| **Offline-first** | All data stored in IndexedDB (Dexie.js) — no server needed                           |
-| **Draggable FAB** | Floating action button that can be repositioned anywhere on screen                   |
+| Feature               | Description                                                                                  |
+| --------------------- | -------------------------------------------------------------------------------------------- |
+| **Dashboard**         | Net balance, income/expense summaries, donut chart, spending trend (6 months), budget ring   |
+| **Expenses**          | Full CRUD with search, filters by category/payment method, month navigation, swipe-to-delete |
+| **Categories**        | 15 built-in categories with emoji icons, custom category support                             |
+| **Reports**           | Monthly/quarterly/yearly analytics, insights, charts, XLSX & CSV export                     |
+| **Calendar**          | Visual calendar view showing daily spending with heat indicators                             |
+| **Groups**            | Split expenses with friends — add members, track balances, settle up, Google Drive sync      |
+| **Budgets**           | Monthly budget tracking with visual progress bars and 80%/100% alerts                       |
+| **Subscriptions**     | Recurring expense tracker — upcoming renewals, monthly commitment total                      |
+| **Tasks / SpendPlan** | To-do tasks and shopping checklists with estimated costs, convert-to-expense                 |
+| **Quick Add**         | Full-screen NumPad page — bookmark as home screen shortcut for instant entry                 |
+| **Google Drive Sync** | OAuth backup/restore to your own Google Drive — no app server ever sees your data           |
+| **Settings**          | 7 themes (Dark/Light/AMOLED/Midnight/Forest/Rose/System), 8 accent colours, 10 currencies   |
+| **Trip Mode**         | Switch to a travel currency with one tap — auto-reverts when you're back                     |
+| **PWA**               | Install as native app on iOS & Android — works fully offline, App Badging API                |
+| **Offline-first**     | All data stored in IndexedDB (Dexie.js) — no server needed, ever                            |
+| **Notifications**     | Budget alerts and overdue task reminders via Web Push                                        |
+| **Haptics**           | Native haptic feedback on mobile                                                             |
+| **Onboarding**        | First-run wizard: pick currency, set budget, done                                            |
 
 ## Tech Stack
 
@@ -50,6 +87,7 @@
 | **Animations** | Framer Motion             |
 | **Search**     | Fuse.js                   |
 | **PWA**        | vite-plugin-pwa (Workbox) |
+| **Date utils** | date-fns                  |
 
 ## Project Structure
 
@@ -59,11 +97,13 @@ expense-manager/
 ├── src/
 │   ├── components/
 │   │   ├── layout/             # AppLayout, BottomNav, PageHeader
-│   │   └── ui/                 # Button, Card, Modal, Input, Toast, DraggableFab, etc.
+│   │   └── ui/                 # Button, Card, Modal, Input, Toast, NumPad, OnboardingWizard, etc.
 │   ├── core/
 │   │   ├── constants.ts        # Default categories, currencies, settings
 │   │   ├── types.ts            # TypeScript interfaces
-│   │   └── utils.ts            # Currency formatting, date helpers
+│   │   ├── utils.ts            # Currency formatting, date helpers
+│   │   ├── haptics.ts          # Native haptic feedback
+│   │   └── smsParser.ts        # SMS transaction parser
 │   ├── db/
 │   │   ├── schema.ts           # Dexie DB schema, seed defaults
 │   │   └── queries.ts          # Database query functions
@@ -73,11 +113,22 @@ expense-manager/
 │   │   ├── reports/            # Analytics & charts
 │   │   ├── calendar/           # Calendar view
 │   │   ├── groups/             # Group expense splitting
+│   │   ├── tasks/              # SpendPlan — to-dos & checklists
+│   │   ├── subscriptions/      # Recurring expense tracker
+│   │   ├── quick-add/          # Standalone NumPad entry page
+│   │   ├── share/              # PWA share target handler
 │   │   └── settings/           # App settings
-│   ├── store/                  # Zustand stores (expenses, categories, budgets, groups, settings)
+│   ├── hooks/
+│   │   └── usePwaInstall.ts    # PWA install prompt hook
+│   ├── services/
+│   │   ├── googleSync.ts       # Google Drive OAuth backup/restore
+│   │   ├── exportXlsx.ts       # Excel export
+│   │   ├── notifications.ts    # Web Push notifications
+│   │   └── recurringProcessor.ts # Auto-process recurring expenses
+│   ├── store/                  # Zustand stores (expenses, categories, budgets, groups, settings, tasks, sync)
 │   ├── App.tsx                 # Root component with routing
 │   ├── main.tsx                # Entry point
-│   └── index.css               # Global styles, theme variables, utilities
+│   └── index.css               # Global styles, theme variables
 ├── index.html
 ├── vite.config.ts
 ├── tsconfig.json
@@ -93,8 +144,8 @@ expense-manager/
 
 ```bash
 # Clone the repo
-git clone <your-repo-url>
-cd expense-manager
+git clone https://github.com/sharukrmys/spendwise.git
+cd spendwise
 
 # Install dependencies
 npm install
@@ -114,9 +165,40 @@ The app will be available at **http://localhost:5173**
 | `npm run preview` | Preview production build locally  |
 | `npm run lint`    | Run ESLint                        |
 
+### Environment Variables (optional)
+
+Create `.env.local` to enable Google Drive sync:
+
+```bash
+VITE_GOOGLE_CLIENT_ID=your_google_oauth_client_id
+```
+
+See `.env.example` for the full list of available variables.
+
 ## Deployment
 
-### Option 1: Netlify (Recommended — Free)
+### Option 1: Vercel (Recommended)
+
+```bash
+# Install Vercel CLI globally
+npm i -g vercel
+
+# Link and deploy (one-time setup)
+cd expense-manager
+vercel link
+
+# Preview deploy
+vercel
+
+# Production deploy
+vercel --prod
+```
+
+Or import your repo at [vercel.com](https://vercel.com) for automatic deploys on every push.
+
+**Free tier:** Unlimited bandwidth for personal projects, HTTPS, custom domains.
+
+### Option 2: Netlify
 
 ```bash
 npm run build
@@ -125,66 +207,14 @@ npx netlify-cli deploy --prod --dir=dist
 
 Or connect your GitHub repo at [netlify.com](https://netlify.com) for automatic deploys on push.
 
-**Free tier:** 100 GB bandwidth/month, HTTPS, custom domains.
-
-### Option 2: Vercel (Free)
-
-#### First-time setup
-
-```bash
-# Install Vercel CLI globally
-npm i -g vercel
-
-# Link the project to Vercel (one-time)
-cd expense-manager
-vercel link
-```
-
-#### Deploy
-
-```bash
-# Preview deploy (safe — does not affect production URL)
-vercel
-
-# Production deploy (promotes to live URL)
-vercel --prod
-```
-
-#### Useful commands
-
-```bash
-# List recent deployments
-vercel ls
-
-# Inspect a specific deployment
-vercel inspect <deployment-url>
-
-# View live logs
-vercel logs <deployment-url>
-
-# Pull environment variables to .env.local
-vercel env pull
-
-# Remove a deployment
-vercel remove <deployment-url>
-```
-
-> **Tip:** Running `vercel` without `--prod` always creates a safe preview URL — great for testing before going live.
-
-Or import your repo at [vercel.com](https://vercel.com) for automatic deploys on every push.
-
-**Free tier:** Unlimited bandwidth for personal projects, HTTPS, custom domains.
-
-### Option 3: Cloudflare Pages (Free)
+### Option 3: Cloudflare Pages
 
 ```bash
 npm run build
 npx wrangler pages deploy dist --project-name=sr-expense
 ```
 
-**Free tier:** Unlimited bandwidth, global CDN, HTTPS.
-
-### Option 4: GitHub Pages (Free)
+### Option 4: GitHub Pages
 
 1. Push to GitHub
 2. Go to **Settings → Pages → Source: GitHub Actions**
@@ -224,11 +254,7 @@ jobs:
 
 ```bash
 npm run build
-
-# Upload to S3
 aws s3 sync dist/ s3://your-bucket-name --delete
-
-# Invalidate CloudFront cache (if using)
 aws cloudfront create-invalidation --distribution-id YOUR_DIST_ID --paths "/*"
 ```
 
@@ -253,6 +279,10 @@ Once deployed to any HTTPS URL:
 
 The app will appear on your home screen as a native app — full screen, no browser bar, works offline.
 
+### Quick Add Shortcut
+
+Bookmark `/quick-add` as a separate home screen shortcut for instant, numpad-first expense entry without opening the full app.
+
 ## Configuration
 
 ### Default Currency
@@ -263,11 +293,25 @@ Available: USD, EUR, GBP, INR, JPY, CAD, AUD, CHF, SGD, AED.
 
 ### Theme
 
-Supports **Dark**, **Light**, and **System** themes. Change in Settings page or edit `DEFAULT_SETTINGS.theme`.
+7 built-in themes: **Dark**, **Light**, **AMOLED**, **Midnight Blue**, **Forest**, **Rose Gold**, **System**. Change in Settings or edit `DEFAULT_SETTINGS.theme`.
+
+### Accent Colour
+
+8 accent colours: Violet, Blue, Cyan, Green, Rose, Orange, Pink, Gold. Customisable per-session in Settings.
 
 ### Categories
 
-15 built-in categories. Add custom ones via the category management in settings. Categories are stored locally in IndexedDB.
+15 built-in categories. Add custom ones via Settings → Categories. Stored locally in IndexedDB.
+
+## Google Drive Sync
+
+1. Create a Google Cloud project and enable the Drive API
+2. Create an OAuth 2.0 client ID (Web application type)
+3. Add your app URL to **Authorised JavaScript origins**
+4. Set `VITE_GOOGLE_CLIENT_ID` in `.env.local`
+5. Connect via Settings → Cloud Sync → Connect Google Drive
+
+Your data is backed up to a private **App Data Folder** in your own Drive (invisible in Drive UI). Groups use regular Drive files for sharing.
 
 ## Data & Privacy
 
@@ -275,9 +319,10 @@ Supports **Dark**, **Light**, and **System** themes. Change in Settings page or 
 - **No accounts** — no sign-up, no login
 - **No tracking** — no analytics, no telemetry
 - **Offline-first** — works without internet after first load
-- **Your data, your device** — nothing leaves the browser
+- **Your data, your device** — nothing leaves the browser unless you explicitly connect Google Drive
+- **Google Drive sync** — goes exclusively to **your** Drive, never to an app server
 
-> **Tip:** Export/import functionality can be added for backup. Data persists as long as browser data isn't cleared.
+> **Backup:** Use Settings → Export to download a JSON backup. Import it on any device to restore.
 
 ## License
 
