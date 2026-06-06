@@ -27,6 +27,7 @@
 
 ---
 
+<!--
 ## Screenshots
 
 <table>
@@ -48,6 +49,7 @@
 </table>
 
 ---
+-->
 
 ## Features
 
@@ -56,18 +58,18 @@
 | **Dashboard**         | Net balance, income/expense summaries, donut chart, spending trend (6 months), budget ring   |
 | **Expenses**          | Full CRUD with search, filters by category/payment method, month navigation, swipe-to-delete |
 | **Categories**        | 15 built-in categories with emoji icons, custom category support                             |
-| **Reports**           | Monthly/quarterly/yearly analytics, insights, charts, XLSX & CSV export                     |
+| **Reports**           | Monthly/quarterly/yearly analytics, insights, charts, XLSX & CSV export                      |
 | **Calendar**          | Visual calendar view showing daily spending with heat indicators                             |
 | **Groups**            | Split expenses with friends — add members, track balances, settle up, Google Drive sync      |
-| **Budgets**           | Monthly budget tracking with visual progress bars and 80%/100% alerts                       |
+| **Budgets**           | Monthly budget tracking with visual progress bars and 80%/100% alerts                        |
 | **Subscriptions**     | Recurring expense tracker — upcoming renewals, monthly commitment total                      |
 | **Tasks / SpendPlan** | To-do tasks and shopping checklists with estimated costs, convert-to-expense                 |
 | **Quick Add**         | Full-screen NumPad page — bookmark as home screen shortcut for instant entry                 |
-| **Google Drive Sync** | OAuth backup/restore to your own Google Drive — no app server ever sees your data           |
-| **Settings**          | 7 themes (Dark/Light/AMOLED/Midnight/Forest/Rose/System), 8 accent colours, 10 currencies   |
+| **Google Drive Sync** | OAuth backup/restore to your own Google Drive — no app server ever sees your data            |
+| **Settings**          | 7 themes (Dark/Light/AMOLED/Midnight/Forest/Rose/System), 8 accent colours, 10 currencies    |
 | **Trip Mode**         | Switch to a travel currency with one tap — auto-reverts when you're back                     |
 | **PWA**               | Install as native app on iOS & Android — works fully offline, App Badging API                |
-| **Offline-first**     | All data stored in IndexedDB (Dexie.js) — no server needed, ever                            |
+| **Offline-first**     | All data stored in IndexedDB (Dexie.js) — no server needed, ever                             |
 | **Notifications**     | Budget alerts and overdue task reminders via Web Push                                        |
 | **Haptics**           | Native haptic feedback on mobile                                                             |
 | **Onboarding**        | First-run wizard: pick currency, set budget, done                                            |
