@@ -8,7 +8,7 @@ import { formatCurrency } from '@/core/utils'
 import { Modal } from '@/components/ui/Modal'
 import { ExpenseForm } from '@/features/expenses/ExpenseForm'
 import type { Expense } from '@/core/types'
-import { format, addDays } from 'date-fns'
+import { format } from 'date-fns'
 
 function daysUntil(ts: number) {
   return Math.ceil((ts - Date.now()) / 86400000)

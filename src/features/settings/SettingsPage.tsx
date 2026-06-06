@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { Download, Upload, Trash2, ChevronRight, DollarSign, Tag, PlusCircle, RefreshCw, CloudOff, LogOut, CloudDownload, CheckCircle2, AlertCircle, Loader2, Smartphone, Palette, Plane } from 'lucide-react'
+import { Download, Upload, Trash2, ChevronRight, DollarSign, Tag, PlusCircle, RefreshCw, CloudOff, LogOut, CloudDownload, CheckCircle2, AlertCircle, Loader2, Smartphone, Palette } from 'lucide-react'
 import { usePwaInstall } from '@/hooks/usePwaInstall'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
