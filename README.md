@@ -102,7 +102,7 @@ SR Expense takes a third path: a **production-quality mobile app with zero backe
 | 💸  | **Expenses**          | Full CRUD, fuzzy search (Fuse.js), filters by category/payment/type, swipe-to-delete, month navigation         |
 | 📈  | **Reports**           | Monthly/quarterly/yearly analytics, AI-style insights ("You spend most on Wednesdays"), XLSX + CSV export      |
 | 📅  | **Calendar**          | Heatmap calendar — daily spend intensity at a glance                                                           |
-| 👥  | **Groups**            | Split bills with friends, per-member balances, settle-up tracking, real-time sync via shared Drive files       |
+| 👥  | **Groups**            | Split bills with friends — share/deep-link or invite-code invites, per-member balances, settle-up tracking     |
 | 💰  | **Budgets**           | Monthly limits with live progress bar, alert banners at 80% and 100%                                           |
 | 🔁  | **Subscriptions**     | Recurring expense tracker — shows next renewal date, monthly cost total                                        |
 | ✅  | **Tasks / SpendPlan** | To-dos and shopping checklists with estimated costs; one-tap convert to expense                                |
@@ -201,17 +201,21 @@ npm run dev          # → http://localhost:5173
 | `npm run build`                | TypeScript check + Vite production build |
 | `npm run preview`              | Serve the production build locally       |
 | `npm run lint`                 | ESLint                                   |
+| `npm test`                     | Run the Vitest test suite once           |
+| `npm run test:watch`           | Vitest in watch mode                     |
+| `npm run deploy`               | Deploy to production via Vercel CLI      |
 | `node capture-screenshots.mjs` | Re-generate all README screenshots + GIF |
 
-### Optional: Google Drive sync
+### Optional: Google Drive sync & group sharing
 
 ```bash
 cp .env.example .env.local
-# Add your Google OAuth client ID:
+# Add your Google OAuth client ID and API key:
 # VITE_GOOGLE_CLIENT_ID=your_client_id_here
+# VITE_GOOGLE_API_KEY=your_api_key_here
 ```
 
-Create a project at [console.cloud.google.com](https://console.cloud.google.com), enable the Drive API, add your app URL to **Authorised JavaScript origins**. No server-side credentials needed — it's all client OAuth.
+Create a project at [console.cloud.google.com](https://console.cloud.google.com), enable the **Drive API** and the **Picker API**, add your app URL to **Authorised JavaScript origins**, and add yourself (and anyone testing group sharing) as an OAuth **Test User**. No server-side credentials needed — it's all client OAuth. The API key is only used to restrict the Google Picker, so it's safe to expose client-side.
 
 ---
 
@@ -239,7 +243,7 @@ npm run build          # output in dist/
 | No account required           | No auth system exists                                                                                |
 | No data sent to any server    | Zero API calls from the app (except optional Drive)                                                  |
 | No analytics / telemetry      | No tracking scripts anywhere in the codebase                                                         |
-| Google Drive sync = your data | App uses `drive.appdata` scope — a private folder invisible in Drive UI. Only the user can access it |
+| Google Drive sync = your data | `drive.appdata` (private backup) + `drive.file` (shared groups) — invisible in Drive UI, member-only |
 | Offline-first                 | Workbox service worker caches all assets on first load                                               |
 
 ---
@@ -253,5 +257,5 @@ See [ROADMAP.md](ROADMAP.md) for planned features.
 <p align="center">
   Built by <strong>SR</strong> &nbsp;·&nbsp;
   <a href="https://expense-manager-in.vercel.app">Live demo</a> &nbsp;·&nbsp;
-  MIT License
+  <a href="LICENSE">MIT License</a>
 </p>
