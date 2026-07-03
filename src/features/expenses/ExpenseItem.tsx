@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Trash2, Pencil, RefreshCw, ChevronRight, Users } from 'lucide-react'
-import { formatCurrency, formatDate, cn } from '@/core/utils'
-import { PAYMENT_METHOD_ICONS } from '@/core/constants'
+import { formatCurrency, formatDate, formatRelativeDateTime, cn } from '@/core/utils'
+import { PaymentMethodIcon } from '@/components/ui/PaymentMethodIcon'
 import { useExpenseStore } from '@/store/useExpenseStore'
 import { useCategoryStore } from '@/store/useCategoryStore'
 import { useSettingsStore } from '@/store/useSettingsStore'
@@ -74,17 +74,14 @@ export function ExpenseItem({ expense, compact }: ExpenseItemProps) {
           {/* Info */}
           <div className="flex-1 min-w-0 text-left">
             <p className="text-sm font-semibold text-1 truncate leading-tight">
+              {linkedGroup && <span style={{ color: '#7c5cfc' }}>{linkedGroup.name}: </span>}
               {expense.notes || (isIncome ? 'Income' : (category?.name ?? 'Expense'))}
             </p>
-            <p className="text-xs text-2 mt-0.5 flex items-center gap-1.5 truncate">
-              <span>{PAYMENT_METHOD_ICONS[expense.paymentMethod]}</span>
-              <span>{formatDate(expense.date, 'h:mm a')}</span>
-              {!compact && <span className="text-3">· {category?.name}</span>}
-              {linkedGroup && (
-                <span className="flex items-center gap-0.5 shrink-0" style={{ color: '#7c5cfc' }}>
-                  · <Users size={10} />
-                  <span className="truncate max-w-[80px]">{linkedGroup.name}</span>
-                </span>
+            <p className="text-xs text-2 mt-0.5 flex items-center gap-1.5 min-w-0">
+              <PaymentMethodIcon method={expense.paymentMethod} size={11} className="shrink-0" />
+              <span className="shrink-0">{formatRelativeDateTime(expense.date)}</span>
+              {!compact && category?.name && (
+                <span className="text-3 truncate min-w-0">· {category.name}</span>
               )}
             </p>
           </div>
@@ -129,15 +126,18 @@ export function ExpenseItem({ expense, compact }: ExpenseItemProps) {
           <div className="card2 rounded-2xl divide-y divide-ui mb-4">
             {[
               { label: 'Date & time', value: formatDate(expense.date, 'EEE, MMM d, yyyy · h:mm a') },
-              { label: 'Payment', value: `${PAYMENT_METHOD_ICONS[expense.paymentMethod]} ${expense.paymentMethod.replace('_', ' ')}` },
+              { label: 'Payment', value: expense.paymentMethod.replace('_', ' '), icon: <PaymentMethodIcon method={expense.paymentMethod} size={13} /> },
               { label: 'Currency', value: expense.currency },
               ...(expense.notes ? [{ label: 'Notes', value: expense.notes }] : []),
               ...(expense.isRecurring ? [{ label: 'Recurring', value: `Every ${expense.recurrence?.interval ?? 'month'}` }] : []),
-              ...(linkedGroup ? [{ label: 'Group', value: `👥 ${linkedGroup.name}` }] : []),
+              ...(linkedGroup ? [{ label: 'Group', value: linkedGroup.name, icon: <Users size={13} /> }] : []),
             ].map(row => (
               <div key={row.label} className="flex items-center justify-between px-4 py-3">
                 <span className="text-sm text-2">{row.label}</span>
-                <span className="text-sm font-medium text-1 capitalize">{row.value}</span>
+                <span className="text-sm font-medium text-1 capitalize flex items-center gap-1.5">
+                  {'icon' in row && row.icon}
+                  {row.value}
+                </span>
               </div>
             ))}
           </div>

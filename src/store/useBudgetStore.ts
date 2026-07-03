@@ -5,7 +5,7 @@ import { budgetQueries } from '@/db/queries'
 interface BudgetState {
   budgets: Budget[]
   load: () => Promise<void>
-  addBudget: (data: Omit<Budget, 'id' | 'createdAt'>) => Promise<Budget>
+  addBudget: (data: Omit<Budget, 'id' | 'createdAt' | 'updatedAt'>) => Promise<Budget>
   updateBudget: (id: string, data: Partial<Budget>) => Promise<void>
   deleteBudget: (id: string) => Promise<void>
 }
@@ -26,7 +26,7 @@ export const useBudgetStore = create<BudgetState>((set) => ({
 
   updateBudget: async (id, data) => {
     await budgetQueries.update(id, data)
-    set(s => ({ budgets: s.budgets.map(b => b.id === id ? { ...b, ...data } : b) }))
+    set(s => ({ budgets: s.budgets.map(b => b.id === id ? { ...b, ...data, updatedAt: Date.now() } : b) }))
   },
 
   deleteBudget: async (id) => {

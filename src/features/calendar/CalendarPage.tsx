@@ -3,7 +3,7 @@ import {
   format, isSameDay, isToday, startOfMonth, endOfMonth, eachDayOfInterval,
   startOfWeek, endOfWeek, isSameMonth, addWeeks, subWeeks, addDays, isThisWeek,
 } from 'date-fns'
-import { ChevronLeft, ChevronRight, CheckSquare, Square, ShoppingCart, ListTodo, Plus } from 'lucide-react'
+import { ChevronLeft, ChevronRight, CheckSquare, Square, ShoppingCart, ListTodo, Plus, CalendarDays, CreditCard, CheckCircle2 } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { ExpenseForm } from '@/features/expenses/ExpenseForm'
 import { ExpenseItem } from '@/features/expenses/ExpenseItem'
@@ -312,7 +312,7 @@ export function CalendarPage() {
 
             {expenses.length === 0 && (
               <div className="flex flex-col items-center justify-center py-12 text-center">
-                <div className="text-5xl mb-3">📅</div>
+                <CalendarDays size={36} className="mb-3 text-3" />
                 <p className="text-base font-semibold text-1 mb-1">No expenses this month</p>
                 <p className="text-sm text-2">Add expenses to see the calendar heatmap.</p>
               </div>
@@ -368,7 +368,7 @@ export function CalendarPage() {
             {/* Week expense list grouped by day */}
             {weekFilteredExpenses.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
-                <div className="text-4xl mb-3">🎉</div>
+                <CalendarDays size={32} className="mb-3 text-3" />
                 <p className="text-base font-semibold text-1 mb-1">
                   {weekSelectedDay ? 'No expenses on this day' : 'No expenses this week'}
                 </p>
@@ -424,13 +424,13 @@ export function CalendarPage() {
                 onClick={() => setDayModalTab('expenses')}
                 className={cn('flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-semibold rounded-lg tap transition-all', dayModalTab === 'expenses' ? 'grad-brand text-white shadow' : 'text-2')}
               >
-                💳 Expenses {dayExpenses.length > 0 && <span className="text-[9px] opacity-70">({dayExpenses.length})</span>}
+                <CreditCard size={12} /> Expenses {dayExpenses.length > 0 && <span className="text-[9px] opacity-70">({dayExpenses.length})</span>}
               </button>
               <button
                 onClick={() => setDayModalTab('tasks')}
                 className={cn('flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-semibold rounded-lg tap transition-all', dayModalTab === 'tasks' ? 'grad-brand text-white shadow' : 'text-2')}
               >
-                ☑ Tasks {dayTasks.length > 0 && <span className="text-[9px] opacity-70">({dayTasks.length})</span>}
+                <CheckSquare size={12} /> Tasks {dayTasks.length > 0 && <span className="text-[9px] opacity-70">({dayTasks.length})</span>}
               </button>
             </div>
           )}
@@ -451,8 +451,8 @@ export function CalendarPage() {
               </>
             ) : (
               <div className="px-4 py-8 text-center">
-                <p className="text-4xl mb-2">🎉</p>
-                <p className="text-sm font-medium text-1">No expenses this day!</p>
+                <CreditCard size={28} className="mb-2 mx-auto text-3" />
+                <p className="text-sm font-medium text-1">No expenses this day</p>
               </div>
             )
           ) : (
@@ -464,8 +464,8 @@ export function CalendarPage() {
               </div>
             ) : (
               <div className="px-4 py-8 text-center">
-                <p className="text-4xl mb-2">✅</p>
-                <p className="text-sm font-medium text-1">No tasks due this day!</p>
+                <CheckCircle2 size={28} className="mb-2 mx-auto text-3" />
+                <p className="text-sm font-medium text-1">No tasks due this day</p>
               </div>
             )
           )}

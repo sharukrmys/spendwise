@@ -6,6 +6,7 @@ import {
   endOfWeek,
   eachDayOfInterval,
   subMonths,
+  subDays,
   startOfYear,
   endOfYear,
 } from "date-fns";
@@ -52,6 +53,22 @@ export const toDateStr = (ts: number): string =>
 export const formatDate = (ts: number, fmt = "MMM d, yyyy"): string =>
   format(new Date(ts), fmt);
 export const today = (): number => Date.now();
+
+// Shows just the time for today's transactions, otherwise prefixes the date
+// (and the year too, if not the current year) so older entries in a list
+// remain distinguishable by day.
+export const formatRelativeDateTime = (ts: number): string => {
+  const d = new Date(ts);
+  const now = new Date();
+  const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diffDays = Math.round((startOfDay(now) - startOfDay(d)) / 86400000);
+  const time = format(d, "h:mm a");
+
+  if (diffDays === 0) return time;
+  if (diffDays === 1) return `Yesterday · ${time}`;
+  const sameYear = d.getFullYear() === now.getFullYear();
+  return `${format(d, sameYear ? "MMM d" : "MMM d, yyyy")} · ${time}`;
+};
 
 export const getMonthRange = (date: Date = new Date()) => ({
   start: startOfMonth(date).getTime(),
@@ -128,6 +145,28 @@ export const buildDailyHeatmap = (
     if (key in map) map[key] = (map[key] ?? 0) + e.amount;
   }
   return map;
+};
+
+/**
+ * Current consecutive-day logging streak, based on when entries were
+ * actually created (not the transaction date the user picked) so it
+ * reflects real app usage rather than backdated entries. A day with no
+ * activity yet doesn't break the streak until it's actually over — so
+ * logging first thing tomorrow still continues today's streak.
+ */
+export const computeLoggingStreak = (expenses: Expense[]): number => {
+  if (expenses.length === 0) return 0;
+  const activeDays = new Set(expenses.map((e) => toDateStr(e.createdAt)));
+  let cursor = new Date();
+  if (!activeDays.has(toDateStr(cursor.getTime()))) {
+    cursor = subDays(cursor, 1);
+  }
+  let streak = 0;
+  while (activeDays.has(toDateStr(cursor.getTime()))) {
+    streak++;
+    cursor = subDays(cursor, 1);
+  }
+  return streak;
 };
 
 // ─── Class Names ────────────────────────────────────────────────────

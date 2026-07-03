@@ -1,18 +1,27 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { format } from 'date-fns'
-import { RefreshCw, Camera, X, Hash, Clipboard } from 'lucide-react'
+import { RefreshCw, Camera, Hash, AlertTriangle, Check, CalendarDays, Users } from 'lucide-react'
 import { Select } from '@/components/ui/Input'
 import { NumPad } from '@/components/ui/NumPad'
+import { PaymentMethodIcon } from '@/components/ui/PaymentMethodIcon'
 import { useExpenseStore } from '@/store/useExpenseStore'
 import { useCategoryStore } from '@/store/useCategoryStore'
 import { useSettingsStore } from '@/store/useSettingsStore'
 import { useGroupStore } from '@/store/useGroupStore'
 import { toast } from '@/components/ui/Toast'
 import type { Expense, Group, PaymentMethod, RecurrenceInterval, Tag } from '@/core/types'
-import { PAYMENT_METHOD_LABELS, PAYMENT_METHOD_ICONS, CURRENCIES } from '@/core/constants'
-import { cn } from '@/core/utils'
-import { tagQueries } from '@/db/queries'
+import { PAYMENT_METHOD_LABELS, CURRENCIES } from '@/core/constants'
+import { cn, formatCurrency } from '@/core/utils'
+import { tagQueries, expenseQueries } from '@/db/queries'
 import { parseSMS, merchantToNotes } from '@/core/smsParser'
+import { nextOccurrence } from '@/services/recurringProcessor'
+import { PAYMENT_METHODS, getRecentCatIds, saveRecentCatId, compressImage } from './expenseFormHelpers'
+import { CategoryPicker } from './CategoryPicker'
+import { TagPicker } from './TagPicker'
+import { ReceiptPreview } from './ReceiptPreview'
+import { SmsParseInput } from './SmsParseInput'
+import { PaidBySplitRow } from './PaidBySplitRow'
+import { SplitMemberCards } from './SplitMemberCards'
 
 interface ExpenseFormProps {
   onClose: () => void
@@ -22,39 +31,6 @@ interface ExpenseFormProps {
   group?: Group
   /** Pre-fill values from share target or quick-add */
   prefill?: { amount?: number; notes?: string }
-}
-
-const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = Object.entries(PAYMENT_METHOD_LABELS).map(
-  ([value, label]) => ({ value: value as PaymentMethod, label: `${PAYMENT_METHOD_ICONS[value]} ${label}` })
-)
-
-const QUICK_COLORS = ['#7c5cfc', '#ec4899', '#f59e0b', '#22c55e', '#06b6d4', '#ef4444', '#f97316', '#8b5cf6']
-
-const RECENT_CATS_KEY = 'em-recent-cats'
-function getRecentCatIds(): string[] {
-  try { return JSON.parse(localStorage.getItem(RECENT_CATS_KEY) ?? '[]') } catch { return [] }
-}
-function saveRecentCatId(id: string) {
-  const updated = [id, ...getRecentCatIds().filter(r => r !== id)].slice(0, 8)
-  localStorage.setItem(RECENT_CATS_KEY, JSON.stringify(updated))
-}
-
-async function compressImage(file: File): Promise<string> {
-  return new Promise(resolve => {
-    const img = new Image()
-    const url = URL.createObjectURL(file)
-    img.onload = () => {
-      const MAX = 900
-      const scale = Math.min(1, MAX / Math.max(img.width, img.height))
-      const canvas = document.createElement('canvas')
-      canvas.width = Math.round(img.width * scale)
-      canvas.height = Math.round(img.height * scale)
-      canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height)
-      URL.revokeObjectURL(url)
-      resolve(canvas.toDataURL('image/jpeg', 0.65))
-    }
-    img.src = url
-  })
 }
 
 export function ExpenseForm({ onClose, expense, defaultType = 'expense', group, prefill }: ExpenseFormProps) {
@@ -76,13 +52,22 @@ export function ExpenseForm({ onClose, expense, defaultType = 'expense', group, 
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(expense?.paymentMethod ?? settings.defaultPaymentMethod)
   const [isRecurring, setIsRecurring] = useState(expense?.isRecurring ?? false)
   const [recurrenceInterval, setRecurrenceInterval] = useState<RecurrenceInterval>(expense?.recurrence?.interval ?? 'monthly')
+  const [nextDueDate, setNextDueDate] = useState(() => {
+    const initial = expense?.recurrence?.nextDate ?? nextOccurrence(expense?.date ?? Date.now(), expense?.recurrence?.interval ?? 'monthly')
+    return format(new Date(initial), 'yyyy-MM-dd')
+  })
+  const nextDueDateRef = useRef<HTMLInputElement>(null)
+  const openNextDueDatePicker = () => {
+    try { nextDueDateRef.current?.showPicker() } catch { nextDueDateRef.current?.click() }
+  }
   const [receipt, setReceipt] = useState<string | null>(expense?.attachments?.[0] ?? null)
   const [showQuickAdd, setShowQuickAdd] = useState(false)
   const [newCatName, setNewCatName] = useState('')
   const [newCatIcon, setNewCatIcon] = useState('📦')
-  const [newCatColor, setNewCatColor] = useState(QUICK_COLORS[0])
+  const [newCatColor, setNewCatColor] = useState('#7c5cfc')
   const [loading, setLoading] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [duplicateMatch, setDuplicateMatch] = useState<Expense | null>(null)
   const [showTags, setShowTags] = useState(false)
   const [showSplit, setShowSplit] = useState(!!expense?.groupId)
   const [showCurrency, setShowCurrency] = useState(false)
@@ -141,7 +126,7 @@ export function ExpenseForm({ onClose, expense, defaultType = 'expense', group, 
     }
     setShowSmsInput(false)
     setSmsText('')
-    toast.success(parsed.confidence === 'high' ? 'Parsed from SMS ✓' : `Parsed · ${parsed.confidence} confidence`)
+    toast.success(parsed.confidence === 'high' ? 'Parsed from SMS' : `Parsed · ${parsed.confidence} confidence`)
   }
 
   const handleClipboardPaste = async () => {
@@ -224,11 +209,12 @@ export function ExpenseForm({ onClose, expense, defaultType = 'expense', group, 
     toast.success('Category added')
   }
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (opts?: { forceNonRecurring?: boolean; allowDuplicate?: boolean }) => {
     if (!validate()) return
     setLoading(true)
     try {
       const totalAmount = parseFloat(parseFloat(amount).toFixed(2))
+      const effectiveIsRecurring = opts?.forceNonRecurring ? false : isRecurring
 
       // ─── Group expense mode ───────────────────────────────────────────
       if (group) {
@@ -256,9 +242,28 @@ export function ExpenseForm({ onClose, expense, defaultType = 'expense', group, 
           tags: selectedTagIds.length > 0 ? selectedTagIds : undefined,
           attachments: receipt ? [receipt] : undefined,
         })
-        toast.success(`Added to ${group.name}!`)
+        toast.success(`Added to ${group.name}`)
         onClose()
         return
+      }
+
+      // ─── Duplicate-subscription guard ──────────────────────────────────
+      // Only matters when this save would newly turn the expense recurring
+      // (not when editing an already-recurring one's own details) — avoids
+      // silently spawning a second "Netflix" template alongside an existing
+      // one just because someone marked an old transaction as recurring.
+      const becomingRecurring = effectiveIsRecurring && !expense?.isRecurring
+      if (becomingRecurring && !opts?.allowDuplicate) {
+        const trimmedName = notes.trim().toLowerCase()
+        if (trimmedName) {
+          const allRecurring = await expenseQueries.getRecurring()
+          const match = allRecurring.find(r => r.id !== expense?.id && (r.notes ?? '').trim().toLowerCase() === trimmedName)
+          if (match) {
+            setDuplicateMatch(match)
+            setLoading(false)
+            return
+          }
+        }
       }
 
       // ─── Personal expense mode ────────────────────────────────────────
@@ -271,8 +276,10 @@ export function ExpenseForm({ onClose, expense, defaultType = 'expense', group, 
         date: new Date(date).getTime(),
         paymentMethod,
         tags: selectedTagIds,
-        isRecurring,
-        recurrence: isRecurring ? { interval: recurrenceInterval } : undefined,
+        isRecurring: effectiveIsRecurring,
+        recurrence: effectiveIsRecurring
+          ? { interval: recurrenceInterval, nextDate: new Date(`${nextDueDate}T00:00:00`).getTime(), endDate: expense?.recurrence?.endDate }
+          : undefined,
         attachments: receipt ? [receipt] : (expense?.attachments ?? []),
         groupId: splitGroupId || undefined,
       }
@@ -311,9 +318,9 @@ export function ExpenseForm({ onClose, expense, defaultType = 'expense', group, 
           })
           // Store back-reference so future edits keep both records in sync
           await updateExpense(savedExpenseId, { linkedGroupExpenseId: newGE.id })
-          toast.success(`${expense ? 'Updated & added to' : 'Added to'} ${grp.name}!`)
+          toast.success(`${expense ? 'Updated & added to' : 'Added to'} ${grp.name}`)
         } else {
-          toast.success(expense ? 'Updated' : 'Expense added!')
+          toast.success(expense ? 'Updated' : 'Expense added')
         }
       } else if (expense?.linkedGroupExpenseId && expense.groupId && splitGroupId === expense.groupId) {
         // Group unchanged on edit — keep GroupExpense.description in sync with personal expense notes
@@ -325,7 +332,7 @@ export function ExpenseForm({ onClose, expense, defaultType = 'expense', group, 
         })
         toast.success('Updated')
       } else {
-        toast.success(expense ? 'Updated' : (type === 'income' ? 'Income added!' : 'Expense added!'))
+        toast.success(expense ? 'Updated' : (type === 'income' ? 'Income added' : 'Expense added'))
       }
       await load()
       onClose()
@@ -430,51 +437,14 @@ export function ExpenseForm({ onClose, expense, defaultType = 'expense', group, 
           />
           {errors.notes && <p className="text-xs text-center mt-0.5" style={{ color: 'var(--expense)' }}>{errors.notes}</p>}
 
-          {/* SMS parse pill — visible hint below description */}
-          {!showSmsInput && (
-            <div className="flex justify-center mt-1.5">
-              <button
-                type="button"
-                onClick={handleClipboardPaste}
-                className="flex items-center gap-1.5 px-3 py-1 rounded-full tap"
-                style={{ background: 'var(--bg-card2)', border: '1px solid var(--border)' }}
-              >
-                <Clipboard size={11} style={{ color: 'var(--text-3)' }} />
-                <span className="text-[10px] font-medium" style={{ color: 'var(--text-3)' }}>Paste bank SMS to auto-fill</span>
-              </button>
-            </div>
-          )}
-
-          {showSmsInput && (
-            <div className="mt-2 flex flex-col gap-1.5">
-              <textarea
-                className="input text-xs resize-none leading-relaxed"
-                rows={3}
-                placeholder="Paste your bank SMS here…"
-                value={smsText}
-                onChange={e => setSmsText(e.target.value)}
-                autoFocus
-              />
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => { setShowSmsInput(false); setSmsText('') }}
-                  className="flex-1 py-1.5 rounded-xl text-xs text-3 tap"
-                  style={{ background: 'var(--bg-card2)' }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => smsText.trim() && handleSmsParse(smsText)}
-                  className="flex-1 py-1.5 rounded-xl text-xs font-semibold tap"
-                  style={{ background: 'rgba(124,92,252,0.15)', color: 'var(--brand)' }}
-                >
-                  Parse
-                </button>
-              </div>
-            </div>
-          )}
+          <SmsParseInput
+            showInput={showSmsInput}
+            onTriggerPaste={handleClipboardPaste}
+            smsText={smsText}
+            onSmsTextChange={setSmsText}
+            onCancel={() => { setShowSmsInput(false); setSmsText('') }}
+            onParse={() => handleSmsParse(smsText)}
+          />
         </div>
       </div>
 
@@ -483,60 +453,28 @@ export function ExpenseForm({ onClose, expense, defaultType = 'expense', group, 
 
         {/* Category — horizontal scroll, same in both modes */}
         {(group || type === 'expense') && (
-          <div>
-            <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-              {sortedCats.map(c => (
-                <button key={c.id} onClick={() => { setCategoryId(c.id); setErrors(e => ({ ...e, categoryId: '' })) }}
-                  className={cn('flex flex-col items-center gap-1.5 pt-2.5 pb-2 px-3 rounded-2xl shrink-0 tap transition-all',
-                    categoryId === c.id ? '' : 'bg-card2'
-                  )}
-                  style={categoryId === c.id
-                    ? { background: `${c.color}18`, outline: `1.5px solid ${c.color}55`, minWidth: 64 }
-                    : { minWidth: 64 }}>
-                  <span className="text-2xl leading-none">{c.icon}</span>
-                  <span className="text-[10px] font-semibold text-2 truncate" style={{ maxWidth: 56, color: categoryId === c.id ? c.color : undefined }}>
-                    {c.name.split(' ')[0]}
-                  </span>
-                </button>
-              ))}
-              {!showQuickAdd && (
-                <button onClick={() => setShowQuickAdd(true)}
-                  className="flex flex-col items-center gap-1.5 pt-2.5 pb-2 px-3 rounded-2xl shrink-0 tap bg-card2"
-                  style={{ minWidth: 64 }}>
-                  <span className="text-2xl leading-none text-brand">+</span>
-                  <span className="text-[10px] font-semibold text-3">New</span>
-                </button>
-              )}
-            </div>
-            {errors.categoryId && <p className="text-xs mt-1" style={{ color: 'var(--expense)' }}>{errors.categoryId}</p>}
-
-            {showQuickAdd && (
-              <div className="mt-2 p-3 rounded-xl bg-card2 flex flex-col gap-2">
-                <div className="flex gap-2">
-                  <input placeholder="📦" value={newCatIcon} onChange={e => setNewCatIcon(e.target.value)}
-                    className="input w-12 text-center text-lg py-1.5" />
-                  <input placeholder="Category name" value={newCatName} onChange={e => setNewCatName(e.target.value)}
-                    className="input flex-1 text-sm py-1.5" onKeyDown={e => e.key === 'Enter' && handleQuickAddCategory()} />
-                  <button onClick={() => setShowQuickAdd(false)} className="tap text-3 p-1"><X size={14} /></button>
-                </div>
-                <div className="flex items-center gap-2">
-                  {QUICK_COLORS.map(c => (
-                    <button key={c} onClick={() => setNewCatColor(c)}
-                      className={cn('w-5 h-5 rounded-full tap shrink-0', newCatColor === c && 'ring-2 ring-offset-1 ring-white')}
-                      style={{ backgroundColor: c }} />
-                  ))}
-                  <button onClick={handleQuickAddCategory} className="ml-auto btn btn-brand text-xs py-1 px-3 rounded-lg">Add</button>
-                </div>
-              </div>
-            )}
-          </div>
+          <CategoryPicker
+            categories={sortedCats}
+            categoryId={categoryId}
+            onSelect={id => { setCategoryId(id); setErrors(e => ({ ...e, categoryId: '' })) }}
+            error={errors.categoryId}
+            showQuickAdd={showQuickAdd}
+            onToggleQuickAdd={setShowQuickAdd}
+            newCatName={newCatName}
+            onNewCatNameChange={setNewCatName}
+            newCatIcon={newCatIcon}
+            onNewCatIconChange={setNewCatIcon}
+            newCatColor={newCatColor}
+            onNewCatColorChange={setNewCatColor}
+            onQuickAddSubmit={handleQuickAddCategory}
+          />
         )}
 
         {/* Date + Payment method row */}
         <div className="flex gap-2">
           <label className="flex-1 flex items-center gap-2 px-3 py-2.5 rounded-2xl cursor-pointer relative overflow-hidden"
             style={{ background: 'var(--bg-card2)', border: '1px solid var(--border)' }}>
-            <span className="text-sm shrink-0">📅</span>
+            <CalendarDays size={14} className="shrink-0 text-3" />
             <span className="text-xs text-1 truncate flex-1 font-medium">
               {date ? format(new Date(date), 'MMM d, h:mm a') : 'Set date'}
             </span>
@@ -553,42 +491,13 @@ export function ExpenseForm({ onClose, expense, defaultType = 'expense', group, 
         {/* ─── Group mode: Paid By + Split ─── */}
         {group && (
           <>
-            {/* Who paid + Split type in one compact row */}
-            <div className="flex gap-3 items-start">
-              <div className="flex-1 min-w-0">
-                <p className="text-[10px] font-bold text-3 uppercase tracking-wider mb-1.5">Who paid?</p>
-                <div className="flex gap-1.5 flex-wrap">
-                  {group.members.map(m => (
-                    <button key={m.id} onClick={() => setPaidBy(m.id)}
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl tap transition-all"
-                      style={paidBy === m.id
-                        ? { background: `${m.avatarColor}25`, border: `1.5px solid ${m.avatarColor}60` }
-                        : { background: 'var(--bg-card2)', border: '1.5px solid var(--border)' }}>
-                      <div className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white shrink-0"
-                        style={{ backgroundColor: m.avatarColor }}>
-                        {m.name[0].toUpperCase()}
-                      </div>
-                      <span className="text-xs font-semibold"
-                        style={{ color: paidBy === m.id ? m.avatarColor : 'var(--text-2)' }}>
-                        {m.name}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="shrink-0">
-                <p className="text-[10px] font-bold text-3 uppercase tracking-wider mb-1.5">Split</p>
-                <div className="flex gap-1.5">
-                  {(['equal', 'custom'] as const).map(t => (
-                    <button key={t} onClick={() => setSplitType(t)}
-                      className={cn('px-3 py-1.5 text-xs font-semibold rounded-xl tap transition-all',
-                        splitType === t ? 'grad-brand text-white' : 'bg-card2 text-2')}>
-                      {t === 'equal' ? '⚖️ Equal' : '✏️ Custom'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
+            <PaidBySplitRow
+              members={group.members}
+              paidBy={paidBy}
+              onPaidByChange={setPaidBy}
+              splitType={splitType}
+              onSplitTypeChange={setSplitType}
+            />
 
             {/* Split member cards — shared design for both equal & custom */}
             <SplitMemberCards
@@ -618,8 +527,8 @@ export function ExpenseForm({ onClose, expense, defaultType = 'expense', group, 
               <button onClick={() => setShowSplit(v => !v)}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold tap transition-all"
                 style={pill(showSplit || !!splitGroupId)}>
-                👥
-                {splitGroupId ? `✓ ${groups.find(g => g.id === splitGroupId)?.name ?? 'Group'}` : 'Add to Group'}
+                {splitGroupId ? <Check size={12} /> : <Users size={12} />}
+                {splitGroupId ? (groups.find(g => g.id === splitGroupId)?.name ?? 'Group') : 'Add to Group'}
               </button>
             )}
           </div>
@@ -628,14 +537,32 @@ export function ExpenseForm({ onClose, expense, defaultType = 'expense', group, 
         {!group && isRecurring && (
           <Select
             options={[
-              { value: 'daily', label: '🔁 Daily' },
-              { value: 'weekly', label: '🔁 Weekly' },
-              { value: 'monthly', label: '🔁 Monthly' },
-              { value: 'yearly', label: '🔁 Yearly' },
+              { value: 'daily', label: 'Daily' },
+              { value: 'weekly', label: 'Weekly' },
+              { value: 'monthly', label: 'Monthly' },
+              { value: 'yearly', label: 'Yearly' },
             ]}
             value={recurrenceInterval}
             onChange={e => setRecurrenceInterval(e.target.value as RecurrenceInterval)}
           />
+        )}
+
+        {!group && isRecurring && (
+          <div className="flex items-center gap-2 px-3 py-2.5 rounded-2xl cursor-pointer relative"
+            style={{ background: 'var(--bg-card2)', border: '1px solid var(--border)' }}
+            onClick={openNextDueDatePicker}>
+            <span className="text-sm shrink-0">⏭️</span>
+            <div className="flex-1">
+              <p className="text-[10px] text-3 font-semibold uppercase tracking-wide">Next due date</p>
+              <p className="text-xs text-1 font-medium">{format(new Date(nextDueDate), 'MMM d, yyyy')}</p>
+            </div>
+            <input
+              ref={nextDueDateRef} type="date" value={nextDueDate}
+              onChange={e => setNextDueDate(e.target.value)}
+              className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+              style={{ colorScheme: 'dark' }}
+            />
+          </div>
         )}
 
         {!group && showSplit && type === 'expense' && groups.length > 0 && (
@@ -675,42 +602,21 @@ export function ExpenseForm({ onClose, expense, defaultType = 'expense', group, 
                 <div className="border-t border-ui">
                   {/* Currency mismatch warning */}
                   {hasCurrencyMismatch && (
-                    <div className="mx-3 mt-3 px-3 py-2 rounded-xl text-[11px] leading-relaxed"
+                    <div className="mx-3 mt-3 px-3 py-2 rounded-xl text-[11px] leading-relaxed flex items-start gap-1.5"
                       style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', color: 'rgba(251,191,36,0.9)' }}>
-                      ⚠️ This group uses {grpSym} {grp.currency} but your expense is in {currencySymbol} {currency}. The amount will be recorded as-is in {grp.currency}. Change the group's currency in Group Settings if needed.
+                      <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+                      <span>This group uses {grpSym} {grp.currency} but your expense is in {currencySymbol} {currency}. The amount will be recorded as-is in {grp.currency}. Change the group's currency in Group Settings if needed.</span>
                     </div>
                   )}
-                  {/* Who paid + Split type in one compact row */}
-                  <div className="px-3 pt-2 pb-2 flex gap-3 items-start">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[10px] font-bold text-3 uppercase tracking-wider mb-1.5">Who paid?</p>
-                      <div className="flex gap-1.5 flex-wrap">
-                        {grp.members.map(m => (
-                          <button key={m.id} onClick={() => setSplitPaidBy(m.id)}
-                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl tap transition-all"
-                            style={splitPaidBy === m.id
-                              ? { background: `${m.avatarColor}25`, border: `1.5px solid ${m.avatarColor}60` }
-                              : { background: 'var(--bg-card)', border: '1.5px solid var(--border)' }}>
-                            <div className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white shrink-0"
-                              style={{ backgroundColor: m.avatarColor }}>{m.name[0].toUpperCase()}</div>
-                            <span className="text-xs font-semibold"
-                              style={{ color: splitPaidBy === m.id ? m.avatarColor : 'var(--text-2)' }}>{m.name}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="shrink-0">
-                      <p className="text-[10px] font-bold text-3 uppercase tracking-wider mb-1.5">Split</p>
-                      <div className="flex gap-1.5">
-                        {(['equal', 'custom'] as const).map(t => (
-                          <button key={t} onClick={() => setPersonalSplitType(t)}
-                            className={cn('px-3 py-1.5 text-xs font-semibold rounded-xl tap transition-all',
-                              personalSplitType === t ? 'grad-brand text-white' : 'bg-card2 text-2')}>
-                            {t === 'equal' ? '⚖️ Equal' : '✏️ Custom'}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
+                  <div className="px-3 pt-2 pb-2">
+                    <PaidBySplitRow
+                      members={grp.members}
+                      paidBy={splitPaidBy}
+                      onPaidByChange={setSplitPaidBy}
+                      splitType={personalSplitType}
+                      onSplitTypeChange={setPersonalSplitType}
+                      memberBg="var(--bg-card)"
+                    />
                   </div>
                   {/* Member split cards */}
                   <div className="border-t border-ui px-3 pt-2 pb-2">
@@ -743,54 +649,27 @@ export function ExpenseForm({ onClose, expense, defaultType = 'expense', group, 
           <button onClick={() => receiptRef.current?.click()}
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold tap transition-all"
             style={pill(!!receipt, '#00c896')}>
-            <Camera size={12} />
-            {receipt ? '✓ Receipt' : 'Receipt'}
+            {receipt ? <Check size={12} /> : <Camera size={12} />}
+            Receipt
           </button>
 
           <button onClick={() => setShowPaymentMethod(v => !v)}
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold tap transition-all"
             style={pill(showPaymentMethod)}>
-            <span>{PAYMENT_METHOD_ICONS[paymentMethod]}</span>
+            <PaymentMethodIcon method={paymentMethod} />
             {PAYMENT_METHOD_LABELS[paymentMethod]}
           </button>
         </div>
 
         {showTags && (
-          <div className="flex flex-col gap-2 p-3 rounded-2xl bg-card2">
-            {allTags.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {allTags.map(tag => {
-                  const active = selectedTagIds.includes(tag.id)
-                  return (
-                    <button key={tag.id} onClick={() => toggleTag(tag.id)}
-                      className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold tap transition-all"
-                      style={active
-                        ? { background: `${tag.color}22`, color: tag.color, border: `1.5px solid ${tag.color}55` }
-                        : { background: 'var(--bg-card)', color: 'var(--text-3)', border: '1.5px solid var(--border)' }}>
-                      <Hash size={9} />{tag.name}
-                      {active && <X size={9} className="ml-0.5 opacity-70" />}
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-            <div className="flex items-center gap-2">
-              <div className="flex-1 flex items-center gap-1.5 rounded-xl px-3 py-2"
-                style={{ background: 'var(--bg-card)', border: '1.5px solid var(--border)' }}>
-                <Hash size={12} className="text-3 shrink-0" />
-                <input className="flex-1 bg-transparent text-sm text-1 outline-none placeholder:text-3"
-                  placeholder="Add tag…" value={tagInput} onChange={e => setTagInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddTag() } }} />
-              </div>
-              {tagInput.trim() && (
-                <button onClick={handleAddTag}
-                  className="w-8 h-8 flex items-center justify-center rounded-xl tap"
-                  style={{ background: 'var(--brand)', color: '#fff' }}>
-                  <Hash size={14} />
-                </button>
-              )}
-            </div>
-          </div>
+          <TagPicker
+            allTags={allTags}
+            selectedTagIds={selectedTagIds}
+            onToggleTag={toggleTag}
+            tagInput={tagInput}
+            onTagInputChange={setTagInput}
+            onAddTag={handleAddTag}
+          />
         )}
 
         {showPaymentMethod && (
@@ -802,6 +681,7 @@ export function ExpenseForm({ onClose, expense, defaultType = 'expense', group, 
                 style={paymentMethod === pm.value
                   ? { background: 'rgba(124,92,252,0.2)', border: '1.5px solid rgba(124,92,252,0.5)', color: 'var(--brand)' }
                   : { background: 'var(--bg-card2)', border: '1.5px solid var(--border)', color: 'var(--text-2)' }}>
+                <PaymentMethodIcon method={pm.value} />
                 {pm.label}
               </button>
             ))}
@@ -811,68 +691,65 @@ export function ExpenseForm({ onClose, expense, defaultType = 'expense', group, 
         {/* Receipt */}
         <input ref={receiptRef} type="file" accept="image/*" className="hidden" onChange={handleReceiptChange} />
         {receipt && (
-          <div className="flex items-center gap-3">
-            <div className="relative shrink-0">
-              <img src={receipt} className="w-14 h-14 rounded-xl object-cover border border-ui" alt="Receipt" />
-              <button onClick={() => setReceipt(null)}
-                className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center"
-                style={{ background: 'var(--expense)' }}>
-                <X size={10} className="text-white" />
-              </button>
+          <ReceiptPreview
+            receipt={receipt}
+            onRemove={() => setReceipt(null)}
+            currencySymbol={currencySymbol}
+            categories={categories}
+            onDetailsExtracted={({ amount: amt, merchant, categoryId: catId }) => {
+              if (amt != null) setAmount(amt.toString())
+              // Only fill in fields the user hasn't already touched — never clobber manual entry.
+              if (merchant && !notes.trim()) setNotes(merchant)
+              if (catId && !categoryId) setCategoryId(catId)
+            }}
+          />
+        )}
+
+        {/* ─── Duplicate-subscription warning ─── */}
+        {duplicateMatch && (
+          <div className="rounded-2xl p-4 flex flex-col gap-3" style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)' }}>
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle size={16} className="shrink-0 mt-0.5" style={{ color: '#f59e0b' }} />
+              <p className="text-sm text-1">
+                You already have a subscription called <span className="font-semibold">"{duplicateMatch.notes}"</span> for{' '}
+                {formatCurrency(duplicateMatch.amount, duplicateMatch.currency, settings.showCents)}/{duplicateMatch.recurrence?.interval ?? 'monthly'}.
+                Creating another will show up as a duplicate in your Subscriptions list.
+              </p>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs text-2 mb-1.5">Receipt attached</p>
-              {'TextDetector' in window && (
-                <button
-                  type="button"
-                  onClick={async () => {
-                    try {
-                      const img = new Image()
-                      await new Promise<void>((res, rej) => { img.onload = () => res(); img.onerror = rej; img.src = receipt })
-                      const bitmap = await createImageBitmap(img)
-                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      const detector = new (window as any).TextDetector()
-                      const results: Array<{ rawValue: string }> = await detector.detect(bitmap)
-                      const text = results.map(r => r.rawValue).join(' ')
-                      // Look for currency amount patterns: ₹1,234.56 / $12.50 / 1234
-                      const match = text.match(/(?:₹|Rs\.?|INR|USD|\$|€|£)?\s*([\d,]+(?:\.\d{1,2})?)/i)
-                      if (match) {
-                        const parsed = parseFloat(match[1].replace(/,/g, ''))
-                        if (!isNaN(parsed) && parsed > 0) {
-                          setAmount(parsed.toString())
-                          toast.success(`Amount extracted: ${currencySymbol}${parsed}`)
-                        } else {
-                          toast.error('No amount found in receipt')
-                        }
-                      } else {
-                        toast.error('No amount found in receipt')
-                      }
-                    } catch {
-                      toast.error('OCR failed — try again')
-                    }
-                  }}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl tap text-xs font-semibold"
-                  style={{ background: 'rgba(124,92,252,0.12)', color: 'var(--brand)', border: '1px solid rgba(124,92,252,0.25)' }}
-                >
-                  ✨ Extract amount
-                </button>
-              )}
+            <div className="flex flex-col gap-2">
+              <button
+                className="w-full py-3 rounded-xl text-sm font-bold text-white tap"
+                style={{ background: gradBtn }}
+                onClick={() => handleSubmit({ forceNonRecurring: true })} disabled={loading}>
+                Save as one-time (don't duplicate)
+              </button>
+              <button
+                className="w-full py-3 rounded-xl text-sm font-semibold tap"
+                style={{ background: 'var(--bg-card2)', color: 'var(--text-2)' }}
+                onClick={() => handleSubmit({ allowDuplicate: true })} disabled={loading}>
+                Create separate subscription anyway
+              </button>
+              <button className="text-sm text-3 tap text-center py-1" onClick={() => setDuplicateMatch(null)}>Go back</button>
             </div>
           </div>
         )}
 
         {/* ─── Save button ─── */}
-        <button
-          className="w-full py-4 rounded-2xl text-base font-bold text-white tap transition-all mt-1"
-          style={{ background: gradBtn, boxShadow: '0 6px 20px rgba(124,92,252,0.3)', opacity: loading ? 0.7 : 1 }}
-          onClick={handleSubmit} disabled={loading}>
-          {loading ? 'Saving…' : expense
-            ? 'Update'
-            : group
-              ? `Add to ${group.name}`
-              : `Add ${type === 'income' ? 'Income' : 'Expense'}`}
-        </button>
-        <button className="text-sm text-3 tap text-center py-1" onClick={onClose}>Cancel</button>
+        {!duplicateMatch && (
+          <>
+            <button
+              className="w-full py-4 rounded-2xl text-base font-bold text-white tap transition-all mt-1"
+              style={{ background: gradBtn, boxShadow: '0 6px 20px rgba(124,92,252,0.3)', opacity: loading ? 0.7 : 1 }}
+              onClick={() => handleSubmit()} disabled={loading}>
+              {loading ? 'Saving…' : expense
+                ? 'Update'
+                : group
+                  ? `Add to ${group.name}`
+                  : `Add ${type === 'income' ? 'Income' : 'Expense'}`}
+            </button>
+            <button className="text-sm text-3 tap text-center py-1" onClick={onClose}>Cancel</button>
+          </>
+        )}
       </div>
 
       {/* NumPad overlay */}
@@ -885,135 +762,6 @@ export function ExpenseForm({ onClose, expense, defaultType = 'expense', group, 
           currencySymbol={currencySymbol}
           label={group ? `${group.name} · ${group.currency}` : (type === 'income' ? 'Income amount' : 'Expense amount')}
         />
-      )}
-    </div>
-  )
-}
-
-// ─── Split Member Cards ───────────────────────────────────────────────
-export function SplitMemberCards({
-  members, splitType, amount, currencySymbol,
-  ignoredMembers, customSplits, onToggleIgnore, onCustomChange,
-}: {
-  members: Group['members']
-  splitType: 'equal' | 'custom'
-  amount: string
-  currencySymbol: string
-  ignoredMembers: Set<string>
-  customSplits: Record<string, string>
-  onToggleIgnore: (id: string) => void
-  onCustomChange: (id: string, val: string) => void
-}) {
-  const total = parseFloat(amount) || 0
-  const activeMembers = members.filter(m => !ignoredMembers.has(m.id))
-  // Floor-based equal split: remainder (rounding) goes to first active member
-  const base = activeMembers.length > 0 && total > 0
-    ? Math.floor((total / activeMembers.length) * 100) / 100
-    : 0
-  const roundRem = activeMembers.length > 0 && total > 0
-    ? parseFloat((total - base * activeMembers.length).toFixed(2))
-    : 0
-  const getEqualAmt = (id: string) => {
-    if (ignoredMembers.has(id)) return 0
-    return activeMembers[0]?.id === id ? base + roundRem : base
-  }
-
-  const customSum = members
-    .filter(m => !ignoredMembers.has(m.id))
-    .reduce((s, m) => s + (parseFloat(customSplits[m.id] ?? '0') || 0), 0)
-  const remaining = total - customSum
-  const pct = total > 0 ? Math.min(100, (customSum / total) * 100) : 0
-  // Only warn when difference >= 1 unit; ignore sub-unit rounding
-  const ok = Math.abs(remaining) < 1
-
-  return (
-    <div className="flex flex-col gap-2">
-      {members.map(m => {
-        const ignored = ignoredMembers.has(m.id)
-        return (
-          <div key={m.id}
-            className="rounded-2xl overflow-hidden transition-all"
-            style={{
-              background: ignored ? 'rgba(255,255,255,0.02)' : 'var(--bg-card2)',
-              border: `1.5px solid ${ignored ? 'rgba(255,255,255,0.06)' : 'var(--border)'}`,
-              opacity: ignored ? 0.5 : 1,
-            }}>
-            {/* Header: avatar + name + amount (equal) + exclude */}
-            <div className="flex items-center gap-3 px-3 py-2.5">
-              <div className="w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold text-white shrink-0"
-                style={{ backgroundColor: ignored ? '#666' : m.avatarColor }}>
-                {m.name[0].toUpperCase()}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className={cn('text-sm font-semibold truncate', ignored ? 'text-3 line-through' : 'text-1')}>
-                  {m.name}
-                </p>
-                {splitType === 'equal' && !ignored && total > 0 && (
-                  <p className="text-sm font-bold mt-0.5" style={{ color: 'var(--brand)' }}>
-                    {currencySymbol}{getEqualAmt(m.id).toFixed(2)}
-                  </p>
-                )}
-                {ignored && <p className="text-[10px] text-3 mt-0.5">Not in this split</p>}
-              </div>
-              <button
-                onClick={() => onToggleIgnore(m.id)}
-                className="px-2.5 py-1.5 rounded-xl tap text-[11px] font-bold shrink-0 transition-all"
-                style={ignored
-                  ? { background: 'rgba(0,200,150,0.12)', color: '#00c896', border: '1px solid rgba(0,200,150,0.3)' }
-                  : { background: 'rgba(255,107,107,0.08)', color: 'rgba(255,107,107,0.8)', border: '1px solid rgba(255,107,107,0.2)' }}>
-                {ignored ? '+ Include' : '× Exclude'}
-              </button>
-            </div>
-            {/* Custom amount input — full width below header */}
-            {splitType === 'custom' && !ignored && (
-              <div className="px-3 pb-3">
-                <div className="flex items-center gap-2 rounded-xl px-4 py-3"
-                  style={{
-                    background: 'linear-gradient(135deg, rgba(124,92,252,0.1), rgba(168,85,247,0.06))',
-                    border: '1.5px solid rgba(124,92,252,0.2)',
-                  }}>
-                  <span className="text-lg font-bold shrink-0" style={{ color: 'rgba(124,92,252,0.6)' }}>
-                    {currencySymbol}
-                  </span>
-                  <input
-                    type="number" inputMode="decimal" placeholder="0.00"
-                    value={customSplits[m.id] ?? ''}
-                    onChange={e => onCustomChange(m.id, e.target.value)}
-                    className="flex-1 bg-transparent text-xl font-bold text-1 text-right outline-none placeholder:text-3 min-w-0"
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-        )
-      })}
-
-      {/* Distribution summary — custom mode, informational only */}
-      {splitType === 'custom' && total > 0 && (
-        <div className="rounded-2xl px-4 py-3"
-          style={{ background: 'var(--bg-card2)', border: '1.5px solid var(--border)' }}>
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-3">Distributed</span>
-            <div className="flex items-center gap-1.5">
-              <span className="text-sm font-bold tabular-nums" style={{ color: ok ? '#00c896' : 'var(--text-1)' }}>
-                {currencySymbol}{customSum.toFixed(2)}
-              </span>
-              <span className="text-xs text-3">of {currencySymbol}{total.toFixed(2)}</span>
-            </div>
-          </div>
-          <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
-            <div className="h-full rounded-full transition-all duration-500"
-              style={{ width: `${pct}%`, background: ok ? '#00c896' : remaining > 0 ? 'linear-gradient(90deg,#7c5cfc,#a855f7)' : '#ef4444' }} />
-          </div>
-          {!ok && (
-            <p className="text-[11px] text-center mt-2 font-medium"
-              style={{ color: remaining > 0 ? 'var(--text-3)' : 'var(--expense)' }}>
-              {remaining > 0
-                ? `${currencySymbol}${remaining.toFixed(2)} remaining`
-                : `${currencySymbol}${Math.abs(remaining).toFixed(2)} over`}
-            </p>
-          )}
-        </div>
       )}
     </div>
   )

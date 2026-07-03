@@ -8,61 +8,94 @@ import { useExpenseStore } from '@/store/useExpenseStore'
 import { useCategoryStore } from '@/store/useCategoryStore'
 import { useSettingsStore } from '@/store/useSettingsStore'
 import { useGroupStore } from '@/store/useGroupStore'
-import { formatCurrency, getMonthRange, cn, groupExpensesToExpenses } from '@/core/utils'
+import { formatCurrency, cn, groupExpensesToExpenses } from '@/core/utils'
+import { expenseQueries } from '@/db/queries'
 import { format, subMonths, addMonths } from 'date-fns'
+import type { Expense } from '@/core/types'
 
 type TabType = 'all' | 'expense' | 'income'
 
+const monthKey = (ts: number) => format(new Date(ts), 'yyyy-MM')
+const monthKeyToDate = (key: string) => new Date(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1, 1)
+
+// Height (px) of the sticky month divider — day-group headers inside each month
+// section are offset by this so the two sticky layers don't overlap.
+const MONTH_HEADER_HEIGHT = 40
+
 export function ExpensesPage() {
-  const { load, loading, filter, setFilter } = useExpenseStore()
-  const rawExpenses = useExpenseStore(s => s.expenses)
+  const { filter, setFilter, dataVersion } = useExpenseStore()
   const { categories } = useCategoryStore()
   const { settings } = useSettingsStore()
   const { groups, groupExpenses } = useGroupStore()
 
+  const [allExpenses, setAllExpenses] = useState<Expense[]>([])
+  const [loading, setLoading] = useState(true)
   const [addOpen, setAddOpen] = useState(false)
   const [addType, setAddType] = useState<'expense' | 'income'>('expense')
   const [fabOpen, setFabOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [filterOpen, setFilterOpen] = useState(false)
   const [tab, setTab] = useState<TabType>('all')
-  const [currentDate, setCurrentDate] = useState(new Date())
+  const [activeMonthKey, setActiveMonthKey] = useState(() => monthKey(Date.now()))
   const [sortBy, setSortBy] = useState<'date' | 'amount'>('date')
   const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc')
   const [refreshing, setRefreshing] = useState(false)
+  const [scrolled, setScrolled] = useState(false)
+  const [isScrolling, setIsScrolling] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
+  const monthRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const pullStartY = useRef(0)
   const pulling = useRef(false)
   const [pullDistance, setPullDistance] = useState(0)
 
-  // Synthetic group expense entries for the current month
-  // Exclude any synthetic whose groupId+amount+date matches a personal expense already
+  // Full history — refetched on every mutation (dataVersion), not scoped to a single month,
+  // so the list can scroll seamlessly across months instead of resetting empty each month.
+  // Only the initial fetch shows a spinner; later refetches swap data in place.
+  useEffect(() => {
+    let cancelled = false
+    expenseQueries.getAll().then(exps => {
+      if (cancelled) return
+      setAllExpenses(exps)
+      setLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [dataVersion])
+
+  // Synthetic group expense entries (personal expenses paid within a group), across all history —
+  // exclude any synthetic whose groupId+amount+date matches a personal expense already
   // linked to that group (avoids double-counting when using "Add to Group" on a personal expense)
-  const groupSpendEntries = useMemo(() => {
+  const allGroupSpendEntries = useMemo(() => {
     if (!settings.includeGroupSpends || !settings.myGroupName) return []
-    const range = getMonthRange(currentDate)
     const linkedKeys = new Set(
-      rawExpenses
+      allExpenses
         .filter(e => e.groupId)
         .map(e => `${e.groupId}|${e.amount}|${Math.round(e.date / 60000)}`)
     )
     return groupExpensesToExpenses(groups, groupExpenses, settings.myGroupName)
-      .filter(e =>
-        e.date >= range.start && e.date <= range.end &&
-        !linkedKeys.has(`${e.groupId}|${e.amount}|${Math.round(e.date / 60000)}`)
-      )
-  }, [settings.includeGroupSpends, settings.myGroupName, groups, groupExpenses, currentDate, rawExpenses])
+      .filter(e => !linkedKeys.has(`${e.groupId}|${e.amount}|${Math.round(e.date / 60000)}`))
+  }, [settings.includeGroupSpends, settings.myGroupName, groups, groupExpenses, allExpenses])
 
-  useEffect(() => {
-    const range = getMonthRange(currentDate)
-    setFilter({ startDate: range.start, endDate: range.end })
-  }, [currentDate])
+  const allCombined = useMemo(() => [...allExpenses, ...allGroupSpendEntries], [allExpenses, allGroupSpendEntries])
 
-  useEffect(() => { load() }, [filter])
+  // Per-month totals — unaffected by tab/search/category filters, so the header
+  // always reflects the true balance for whichever month is currently in view.
+  const monthAggregates = useMemo(() => {
+    const map = new Map<string, { income: number; expense: number; count: number }>()
+    for (const e of allCombined) {
+      const key = monthKey(e.date)
+      const agg = map.get(key) ?? { income: 0, expense: 0, count: 0 }
+      if (e.type === 'income') agg.income += e.amount
+      else agg.expense += e.amount
+      agg.count++
+      map.set(key, agg)
+    }
+    return map
+  }, [allCombined])
 
-  const expenses = useMemo(() => {
-    const base = [...rawExpenses, ...groupSpendEntries]
-    const filtered = base.filter(e => {
+  // Filtered + searched, grouped by month (newest first), items within each month
+  // sorted per sortBy/sortDir — months stay in chronological order regardless of sort.
+  const monthGroups = useMemo(() => {
+    const filtered = allCombined.filter(e => {
       if (tab === 'expense' && e.type !== 'expense') return false
       if (tab === 'income' && e.type !== 'income') return false
       if (filter.categoryId && e.categoryId !== filter.categoryId) return false
@@ -73,11 +106,60 @@ export function ExpensesPage() {
       }
       return true
     })
+    const byMonth = new Map<string, Expense[]>()
+    for (const e of filtered) {
+      const key = monthKey(e.date)
+      if (!byMonth.has(key)) byMonth.set(key, [])
+      byMonth.get(key)!.push(e)
+    }
     const mult = sortDir === 'desc' ? -1 : 1
-    return [...filtered].sort((a, b) =>
-      sortBy === 'date' ? mult * (a.date - b.date) : mult * (a.amount - b.amount)
-    )
-  }, [rawExpenses, groupSpendEntries, filter, tab, sortBy, sortDir, searchQuery])
+    return Array.from(byMonth.entries())
+      .sort(([a], [b]) => b.localeCompare(a))
+      .map(([key, items]) =>
+        [key, [...items].sort((a, b) => sortBy === 'date' ? mult * (a.date - b.date) : mult * (a.amount - b.amount))] as const
+      )
+  }, [allCombined, filter.categoryId, filter.paymentMethod, tab, sortBy, sortDir, searchQuery])
+
+  // Scrollspy — whichever month section's top has scrolled up to (or past) the sticky
+  // header band is the "active" one driving the header above. Computed directly from
+  // geometry on every scroll frame rather than via IntersectionObserver: a razor-thin
+  // observer margin can miss a section entirely during a large/fast jump (a flung scroll,
+  // or the smooth `scrollIntoView` the prev/next arrows trigger) since IO only samples
+  // discrete frames — a fast-moving target can cross a thin band between two samples.
+  useEffect(() => {
+    const root = listRef.current
+    if (!root || monthGroups.length === 0) return
+    let ticking = false
+    let scrollingTimer: ReturnType<typeof setTimeout>
+    const updateActiveMonth = () => {
+      ticking = false
+      setScrolled(root.scrollTop > 4)
+      const rootTop = root.getBoundingClientRect().top
+      let current: string | null = null
+      for (const [key] of monthGroups) {
+        const el = monthRefs.current[key]
+        if (!el) continue
+        const top = el.getBoundingClientRect().top - rootTop
+        if (top <= MONTH_HEADER_HEIGHT + 1) current = key
+        else break
+      }
+      if (current) setActiveMonthKey(current)
+    }
+    const onScroll = () => {
+      setIsScrolling(true)
+      clearTimeout(scrollingTimer)
+      scrollingTimer = setTimeout(() => setIsScrolling(false), 400)
+      if (ticking) return
+      ticking = true
+      requestAnimationFrame(updateActiveMonth)
+    }
+    updateActiveMonth()
+    root.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      root.removeEventListener('scroll', onScroll)
+      clearTimeout(scrollingTimer)
+    }
+  }, [monthGroups])
 
   const sortLabel = sortBy === 'date'
     ? (sortDir === 'desc' ? 'Newest' : 'Oldest')
@@ -90,14 +172,15 @@ export function ExpensesPage() {
     else { setSortBy('date'); setSortDir('desc') }
   }
 
-  const incomeTotal = useMemo(() => rawExpenses.filter(e => e.type === 'income').reduce((s, e) => s + e.amount, 0), [rawExpenses])
-  const expenseTotal = useMemo(() => [
-    ...rawExpenses.filter(e => e.type !== 'income'),
-    ...groupSpendEntries,
-  ].reduce((s, e) => s + e.amount, 0), [rawExpenses, groupSpendEntries])
-  const balance = incomeTotal - expenseTotal
+  const goToMonth = (key: string) => {
+    const el = monthRefs.current[key]
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    else setActiveMonthKey(key)
+  }
 
-  const isCurrentMonth = format(currentDate, 'yyyy-MM') === format(new Date(), 'yyyy-MM')
+  const activeAgg = monthAggregates.get(activeMonthKey) ?? { income: 0, expense: 0, count: 0 }
+  const balance = activeAgg.income - activeAgg.expense
+  const isCurrentMonth = activeMonthKey >= format(new Date(), 'yyyy-MM')
   const fmt = (v: number) => formatCurrency(v, settings.defaultCurrency, settings.showCents)
 
   const PULL_THRESHOLD = 72
@@ -121,7 +204,7 @@ export function ExpensesPage() {
     if (pullDistance >= PULL_THRESHOLD) {
       setRefreshing(true)
       setPullDistance(0)
-      await load()
+      setAllExpenses(await expenseQueries.getAll())
       setRefreshing(false)
     } else {
       setPullDistance(0)
@@ -131,71 +214,90 @@ export function ExpensesPage() {
   const openAdd = (type: 'expense' | 'income') => { setAddType(type); setAddOpen(true) }
 
   return (
-    <div className="flex flex-col min-h-full bg-base">
-      {/* ─── Header ───────────────────────────── */}
-      <div style={{ background: 'linear-gradient(160deg, #2a1860 0%, #16123a 60%)' }} className="px-4 pt-safe pb-4">
+    <div className="flex flex-col h-full bg-base">
+      {/* ─── Header ─── slim month-nav bar always visible; balance/income-expense/search
+          collapse away while scrolling so the list gets the vertical space instead,
+          and expand back the moment you're back at the top. ──────────────────────── */}
+      <div style={{ background: 'linear-gradient(160deg, #2a1860 0%, #16123a 60%)' }} className="px-4 pt-safe pb-3">
         {/* Month nav */}
-        <div className="flex items-center justify-between mb-5">
-          <button onClick={() => setCurrentDate(d => subMonths(d, 1))} className="w-9 h-9 flex items-center justify-center rounded-xl tap" style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.12)' }}>
+        <div className={cn('flex items-center justify-between transition-all duration-300', scrolled ? 'mb-0' : 'mb-5')}>
+          <button aria-label="Previous month" onClick={() => goToMonth(format(subMonths(monthKeyToDate(activeMonthKey), 1), 'yyyy-MM'))} className="w-9 h-9 flex items-center justify-center rounded-xl tap shrink-0" style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.12)' }}>
             <ChevronLeft size={18} style={{ color: 'rgba(240,238,255,0.8)' }} />
           </button>
-          <div className="text-center">
-            <p className="text-base font-bold" style={{ color: '#f0eeff' }}>{format(currentDate, 'MMMM yyyy')}</p>
-            <p className="text-xs" style={{ color: 'rgba(200,195,240,0.6)' }}>{expenses.length} transaction{expenses.length !== 1 ? 's' : ''}</p>
+          <div className="text-center flex items-baseline gap-2">
+            <p className="text-base font-bold" style={{ color: '#f0eeff' }}>{format(monthKeyToDate(activeMonthKey), 'MMMM yyyy')}</p>
+            {scrolled ? (
+              <p className={cn('text-sm font-bold', balance >= 0 ? 'text-income' : 'text-expense')}>
+                {balance >= 0 ? '+' : ''}{fmt(balance)}
+              </p>
+            ) : (
+              <p className="text-xs" style={{ color: 'rgba(200,195,240,0.6)' }}>{activeAgg.count} transaction{activeAgg.count !== 1 ? 's' : ''}</p>
+            )}
           </div>
-          <button onClick={() => setCurrentDate(d => addMonths(d, 1))} disabled={isCurrentMonth} className="w-9 h-9 flex items-center justify-center rounded-xl tap disabled:opacity-30" style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.12)' }}>
+          <button aria-label="Next month" onClick={() => goToMonth(format(addMonths(monthKeyToDate(activeMonthKey), 1), 'yyyy-MM'))} disabled={isCurrentMonth} className="w-9 h-9 flex items-center justify-center rounded-xl tap disabled:opacity-30 shrink-0" style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.12)' }}>
             <ChevronRight size={18} style={{ color: 'rgba(240,238,255,0.8)' }} />
           </button>
         </div>
 
-        {/* Balance + income/expense */}
-        <div className="text-center mb-5">
-          <p className="text-xs font-medium uppercase tracking-wider mb-1" style={{ color: 'rgba(200,195,240,0.6)' }}>Balance</p>
-          <p className={cn('text-4xl font-bold', balance >= 0 ? 'text-income' : 'text-expense')}>
-            {balance >= 0 ? '+' : ''}{fmt(balance)}
-          </p>
-        </div>
+        {/* Collapsible: balance, income/expense, search */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateRows: scrolled ? '0fr' : '1fr',
+            transition: 'grid-template-rows 280ms ease',
+          }}
+        >
+          <div className="overflow-hidden">
+            {/* Balance + income/expense */}
+            <div className="text-center mb-5 pt-1">
+              <p className="text-xs font-medium uppercase tracking-wider mb-1" style={{ color: 'rgba(200,195,240,0.6)' }}>Balance</p>
+              <p className={cn('text-4xl font-bold', balance >= 0 ? 'text-income' : 'text-expense')}>
+                {balance >= 0 ? '+' : ''}{fmt(balance)}
+              </p>
+            </div>
 
-        <div className="grid grid-cols-2 gap-3 mb-4">
-          <button onClick={() => openAdd('income')} className="flex items-center gap-2.5 rounded-2xl p-3 tap" style={{ background: 'rgba(0,200,150,0.15)', border: '1px solid rgba(0,200,150,0.25)' }}>
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'rgba(0,200,150,0.25)' }}>
-              <TrendingUp size={15} className="text-income" />
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <button onClick={() => openAdd('income')} className="flex items-center gap-2.5 rounded-2xl p-3 tap" style={{ background: 'rgba(0,200,150,0.15)', border: '1px solid rgba(0,200,150,0.25)' }}>
+                <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'rgba(0,200,150,0.25)' }}>
+                  <TrendingUp size={15} className="text-income" />
+                </div>
+                <div className="text-left min-w-0">
+                  <p className="text-[10px] font-semibold text-income uppercase tracking-wide">Income</p>
+                  <p className="text-sm font-bold truncate" style={{ color: '#f0eeff' }}>{fmt(activeAgg.income)}</p>
+                </div>
+              </button>
+              <button onClick={() => openAdd('expense')} className="flex items-center gap-2.5 rounded-2xl p-3 tap" style={{ background: 'rgba(255,107,107,0.15)', border: '1px solid rgba(255,107,107,0.25)' }}>
+                <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'rgba(255,107,107,0.25)' }}>
+                  <TrendingDown size={15} className="text-expense" />
+                </div>
+                <div className="text-left min-w-0">
+                  <p className="text-[10px] font-semibold text-expense uppercase tracking-wide">Expenses</p>
+                  <p className="text-sm font-bold truncate" style={{ color: '#f0eeff' }}>{fmt(activeAgg.expense)}</p>
+                </div>
+              </button>
             </div>
-            <div className="text-left min-w-0">
-              <p className="text-[10px] font-semibold text-income uppercase tracking-wide">Income</p>
-              <p className="text-sm font-bold truncate" style={{ color: '#f0eeff' }}>{fmt(incomeTotal)}</p>
-            </div>
-          </button>
-          <button onClick={() => openAdd('expense')} className="flex items-center gap-2.5 rounded-2xl p-3 tap" style={{ background: 'rgba(255,107,107,0.15)', border: '1px solid rgba(255,107,107,0.25)' }}>
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'rgba(255,107,107,0.25)' }}>
-              <TrendingDown size={15} className="text-expense" />
-            </div>
-            <div className="text-left min-w-0">
-              <p className="text-[10px] font-semibold text-expense uppercase tracking-wide">Expenses</p>
-              <p className="text-sm font-bold truncate" style={{ color: '#f0eeff' }}>{fmt(expenseTotal)}</p>
-            </div>
-          </button>
-        </div>
 
-        {/* Search */}
-        <div className="relative">
-          <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: 'rgba(200,195,240,0.5)' }} />
-          <input
-            className="pl-10 pr-10 py-3 text-sm w-full rounded-[0.875rem] outline-none"
-            style={{ background: 'rgba(255,255,255,0.08)', border: '1.5px solid rgba(255,255,255,0.12)', color: '#f0eeff', fontSize: '1rem' }}
-            placeholder="Search transactions..."
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-          />
-          {searchQuery ? (
-            <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 tap">
-              <X size={15} style={{ color: 'rgba(200,195,240,0.5)' }} />
-            </button>
-          ) : (
-            <button onClick={() => setFilterOpen(true)} className="absolute right-3 top-1/2 -translate-y-1/2 tap">
-              <SlidersHorizontal size={15} style={{ color: 'rgba(200,195,240,0.5)' }} />
-            </button>
-          )}
+            {/* Search */}
+            <div className="relative">
+              <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: 'rgba(200,195,240,0.5)' }} />
+              <input
+                className="pl-10 pr-10 py-3 text-sm w-full rounded-[0.875rem] outline-none"
+                style={{ background: 'rgba(255,255,255,0.08)', border: '1.5px solid rgba(255,255,255,0.12)', color: '#f0eeff', fontSize: '1rem' }}
+                placeholder="Search transactions..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+              />
+              {searchQuery ? (
+                <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 tap">
+                  <X size={15} style={{ color: 'rgba(200,195,240,0.5)' }} />
+                </button>
+              ) : (
+                <button onClick={() => setFilterOpen(true)} className="absolute right-3 top-1/2 -translate-y-1/2 tap">
+                  <SlidersHorizontal size={15} style={{ color: 'rgba(200,195,240,0.5)' }} />
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -247,7 +349,7 @@ export function ExpensesPage() {
       {/* ─── List ─────────────────────────────── */}
       <div
         ref={listRef}
-        className="flex-1 bg-base overflow-y-auto"
+        className="flex-1 min-h-0 bg-base overflow-y-auto"
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
@@ -266,9 +368,9 @@ export function ExpensesPage() {
             />
           </div>
         )}
-        {expenses.length === 0 && (rawExpenses.length > 0 || groupSpendEntries.length > 0) ? (
+        {loading ? null : monthGroups.length === 0 && allCombined.length > 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center px-8">
-            <p className="text-4xl mb-3">🔍</p>
+            <Search size={32} className="mb-3 text-3" />
             <p className="text-base font-semibold text-1 mb-1">No results</p>
             <p className="text-sm text-2 mb-4">Try adjusting your filters or search term.</p>
             <button
@@ -282,8 +384,26 @@ export function ExpensesPage() {
               Clear filters
             </button>
           </div>
+        ) : monthGroups.length === 0 ? (
+          <ExpenseList expenses={[]} loading={loading} onAdd={() => setAddOpen(true)} />
         ) : (
-          <ExpenseList expenses={expenses} loading={loading} onAdd={() => setAddOpen(true)} />
+          monthGroups.map(([key, items]) => (
+            // The scrollspy ref/data attribute lives on this plain (non-sticky) wrapper,
+            // not the sticky header below — scrollIntoView and IntersectionObserver both
+            // get unreliable geometry from a `position: sticky` element once it's scrolled
+            // past, since its rect can reflect a stale "stuck" offset rather than its true
+            // flow position.
+            <div key={key} ref={el => { monthRefs.current[key] = el }} data-month-key={key}>
+              <div
+                className="sticky top-0 z-20 flex items-center justify-between px-4 py-2.5 bg-base border-b border-ui"
+                style={{ height: MONTH_HEADER_HEIGHT }}
+              >
+                <span className="text-xs font-bold text-1 uppercase tracking-wide">{format(monthKeyToDate(key), 'MMMM yyyy')}</span>
+                <span className="text-xs text-3">{items.length} txn{items.length !== 1 ? 's' : ''}</span>
+              </div>
+              <ExpenseList expenses={items} onAdd={() => setAddOpen(true)} stickyOffset={MONTH_HEADER_HEIGHT} />
+            </div>
+          ))
         )}
       </div>
 
@@ -319,7 +439,15 @@ export function ExpensesPage() {
           <button
             onClick={() => setFabOpen(v => !v)}
             className="fab w-14 h-14"
-            style={{ bottom: '5.5rem', right: '1.25rem', zIndex: 50, transform: fabOpen ? 'rotate(45deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}
+            style={{
+              bottom: '5.5rem',
+              right: '1.25rem',
+              zIndex: 50,
+              transform: `${fabOpen ? 'rotate(45deg) ' : 'rotate(0deg) '}scale(${isScrolling && !fabOpen ? 0.85 : 1})`,
+              opacity: isScrolling && !fabOpen ? 0 : 1,
+              pointerEvents: isScrolling && !fabOpen ? 'none' : 'auto',
+              transition: 'transform 0.2s, opacity 0.2s',
+            }}
           >
             <Plus size={24} className="text-white" />
           </button>
@@ -329,7 +457,7 @@ export function ExpensesPage() {
 
       {/* Add modal */}
       <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add Transaction">
-        <ExpenseForm onClose={() => { setAddOpen(false); load() }} defaultType={addType} />
+        <ExpenseForm onClose={() => setAddOpen(false)} defaultType={addType} />
       </Modal>
 
       {/* Filter modal */}

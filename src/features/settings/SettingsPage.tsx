@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { Download, Upload, Trash2, ChevronRight, DollarSign, Tag, PlusCircle, RefreshCw, CloudOff, LogOut, CloudDownload, CheckCircle2, AlertCircle, Loader2, Smartphone, Palette } from 'lucide-react'
+import { Download, Upload, Trash2, ChevronRight, DollarSign, Tag, PlusCircle, RefreshCw, CloudOff, LogOut, CloudDownload, CheckCircle2, AlertCircle, Loader2, Smartphone, Palette, Moon, Sun, Monitor, MoonStar, Waves, Leaf, Flower2, Share, type LucideIcon } from 'lucide-react'
 import { usePwaInstall } from '@/hooks/usePwaInstall'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -19,6 +19,16 @@ import { formatCurrency, cn } from '@/core/utils'
 import type { PaymentMethod, ThemePreset } from '@/core/types'
 import { db } from '@/db/schema'
 import { format, formatDistanceToNow } from 'date-fns'
+
+const THEME_ICONS: Record<ThemePreset, LucideIcon> = {
+  dark: Moon,
+  light: Sun,
+  system: Monitor,
+  amoled: MoonStar,
+  midnight: Waves,
+  forest: Leaf,
+  rose: Flower2,
+}
 
 // ─── Section Header ───────────────────────────────────────────────────
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -99,7 +109,7 @@ export function SettingsPage() {
       a.download = `expenses-backup-${format(new Date(), 'yyyy-MM-dd')}.json`
       a.click()
       URL.revokeObjectURL(url)
-      toast.success('Data exported!')
+      toast.success('Data exported')
     } catch { toast.error('Export failed') }
   }
 
@@ -130,7 +140,7 @@ export function SettingsPage() {
       a.download = `expenses-${format(new Date(), 'yyyy-MM-dd')}.csv`
       a.click()
       URL.revokeObjectURL(url)
-      toast.success('CSV exported!')
+      toast.success('CSV exported')
     } catch { toast.error('CSV export failed') }
   }
 
@@ -143,7 +153,7 @@ export function SettingsPage() {
       if (!data.expenses) throw new Error('Invalid backup file')
       await backupQueries.importAll(data)
       await reloadExpenses()
-      toast.success(`Imported ${data.expenses.length} expenses!`)
+      toast.success(`Imported ${data.expenses.length} expenses`)
     } catch { toast.error('Import failed — invalid file') }
     e.target.value = ''
   }
@@ -179,19 +189,22 @@ export function SettingsPage() {
           <div className="p-4">
             <p className="text-sm font-medium text-1 mb-3">Theme</p>
             <div className="grid grid-cols-4 gap-2">
-              {THEME_PRESETS.map(t => (
-                <button
-                  key={t.value}
-                  onClick={() => setTheme(t.value as ThemePreset)}
-                  className={cn(
-                    'flex flex-col items-center gap-1 py-2.5 px-1 rounded-xl text-[10px] font-semibold transition-all tap',
-                    settings.theme === t.value ? 'grad-brand text-white' : 'bg-card2 text-2'
-                  )}
-                >
-                  <span className="text-base leading-none">{t.icon}</span>
-                  {t.label}
-                </button>
-              ))}
+              {THEME_PRESETS.map(t => {
+                const ThemeIcon = THEME_ICONS[t.value as ThemePreset]
+                return (
+                  <button
+                    key={t.value}
+                    onClick={() => setTheme(t.value as ThemePreset)}
+                    className={cn(
+                      'flex flex-col items-center gap-1 py-2.5 px-1 rounded-xl text-[10px] font-semibold transition-all tap',
+                      settings.theme === t.value ? 'grad-brand text-white' : 'bg-card2 text-2'
+                    )}
+                  >
+                    <ThemeIcon size={16} />
+                    {t.label}
+                  </button>
+                )
+              })}
             </div>
           </div>
           <div className="border-t border-ui" />
@@ -472,7 +485,7 @@ export function SettingsPage() {
             <div className="flex flex-col gap-3">
               <div className="flex items-start gap-3">
                 <span className="text-xl shrink-0">1.</span>
-                <p>Tap the <strong className="text-1">Share</strong> button <span className="text-base">⬆</span> at the bottom of Safari</p>
+                <p className="flex items-center gap-1 flex-wrap">Tap the <strong className="text-1">Share</strong> button <Share size={14} className="inline-block" /> at the bottom of Safari</p>
               </div>
               <div className="flex items-start gap-3">
                 <span className="text-xl shrink-0">2.</span>
@@ -545,7 +558,7 @@ export function SettingsPage() {
                 setRestoreConfirm(false)
                 await pullAndRestore()
                 await reloadExpenses()
-                toast.success('Restored from Google Drive!')
+                toast.success('Restored from Google Drive')
               }}
               className="flex-1"
             >

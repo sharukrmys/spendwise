@@ -9,7 +9,7 @@
 - "Envelope budgeting" — allocate income into buckets, track what's left
 
 ### Recurring Expenses
-- Auto-log recurring transactions (subscriptions, rent, EMIs) — the recurrence model exists in tasks but not expenses
+- ✅ Shipped — `src/services/recurringProcessor.ts` auto-logs recurring expenses on app load
 - Upcoming subscription reminder strip on dashboard
 
 ### Receipt Scanning
@@ -23,19 +23,17 @@
 ## UX / Interaction Improvements
 
 ### Onboarding
-- First-launch walkthrough — empty states currently show nothing, new users don't know what to do
-- Quick-setup wizard: set currency, add 2-3 categories, set a monthly budget
+- ✅ Shipped — `src/components/ui/OnboardingWizard.tsx`, wired into `AppLayout`
 
 ### Quick Add
-- Swipe-to-add gesture or long-press FAB for instant expense entry (amount + category, nothing else)
-- Home screen widget via `share_target` in PWA manifest — receive amounts from other apps
+- ✅ Shipped — `src/features/quick-add/QuickAddPage.tsx` + `DraggableFab.tsx`
+- Home screen widget via `share_target` in PWA manifest — receive amounts from other apps (see PWA Hardening below — the manifest entry itself is done, `ShareTargetPage.tsx` handles it)
 
 ### Search & Filter
-- Global search across expenses + tasks — single search bar in the header
+- ✅ Shipped — `src/components/ui/GlobalSearch.tsx`
 
 ### Gestures
-- Swipe left on an expense/task card → delete (with undo toast)
-- Swipe right → edit
+- ✅ Shipped — `src/components/ui/SwipeableRow.tsx` used across expense/task lists
 
 ---
 
@@ -54,7 +52,7 @@
 - Add a monthly spend sparkline in the header (7-day trend inline with the balance)
 
 ### Haptic Feedback
-- `navigator.vibrate(10)` on mark-done, delete, convert-to-expense
+- ✅ Shipped — `src/core/haptics.ts` (light/medium/success/delete patterns), check call sites cover all the actions listed here
 
 ---
 
@@ -65,7 +63,7 @@
 - Import from bank CSV (HDFC / SBI / ICICI column mappings)
 
 ### PWA Hardening
-- Add `share_target` to manifest so users can share amounts/receipts from gallery/calculator into the app
+- ✅ Shipped — `share_target` configured in `vite.config.ts` manifest, handled by `ShareTargetPage.tsx`
 - Background sync: queue offline changes, flush when online (instead of relying solely on Drive sync)
 
 ### Notifications
@@ -90,9 +88,9 @@
 
 | What | Where | Effort |
 |---|---|---|
-| Confetti animation when all checklist items checked | TaskCard | 1h |
-| "Good morning / evening" greeting on Dashboard | DashboardPage header | 30m |
-| Skeleton loading screens instead of spinner | All lazy routes | 2h |
+| ✅ Confetti animation when all checklist items checked | TaskCard | Shipped |
+| ✅ "Good morning / evening" greeting on Dashboard | DashboardPage header | Shipped |
+| ✅ Skeleton loading screens instead of spinner | All lazy routes | Shipped |
 | Long-press category icon to edit it inline | Category picker | 2h |
 | Monthly summary share card (screenshot-ready) | Reports | 3h |
 | Drag-to-reorder checklist items | TaskForm | 2h |

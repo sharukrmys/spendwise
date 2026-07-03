@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react'
-import { Plus, Search, X } from 'lucide-react'
+import { Plus, Search, X, CheckCircle2, ListChecks, ShoppingCart, Trophy, type LucideIcon } from 'lucide-react'
 import { isPast, isToday } from 'date-fns'
 import { Modal } from '@/components/ui/Modal'
 import { TaskCard } from './TaskCard'
@@ -42,7 +42,7 @@ export function TasksPage() {
     try {
       await convertToExpense(task.id)
       await loadExpenses()
-      toast.success('Logged as expense!')
+      toast.success('Logged as expense')
     } catch {
       toast.error('Failed to convert')
     } finally {
@@ -244,16 +244,16 @@ function TaskGroup({
 
 // ─── Empty State ──────────────────────────────────────────────────────────────
 function EmptyState({ type, onAdd }: { type: TabType | 'done'; onAdd: () => void }) {
-  const config = {
-    all: { emoji: '✅', title: 'No tasks yet', desc: 'Plan your purchases, reminders, and shopping lists here.' },
-    todo: { emoji: '☑️', title: 'No todos', desc: 'Add a reminder, bill, or purchase intention.' },
-    checklist: { emoji: '🛒', title: 'No checklists', desc: 'Create a shopping list or multi-item checklist.' },
-    done: { emoji: '🎉', title: 'Nothing done yet', desc: 'Complete tasks to see them here.' },
+  const config: Record<TabType | 'done', { icon: LucideIcon; title: string; desc: string }> = {
+    all: { icon: ListChecks, title: 'No tasks yet', desc: 'Plan your purchases, reminders, and shopping lists here.' },
+    todo: { icon: CheckCircle2, title: 'No todos', desc: 'Add a reminder, bill, or purchase intention.' },
+    checklist: { icon: ShoppingCart, title: 'No checklists', desc: 'Create a shopping list or multi-item checklist.' },
+    done: { icon: Trophy, title: 'Nothing done yet', desc: 'Complete tasks to see them here.' },
   }
-  const { emoji, title, desc } = config[type]
+  const { icon: Icon, title, desc } = config[type]
   return (
     <div className="card flex flex-col items-center justify-center py-12 px-6 text-center">
-      <div className="text-5xl mb-4">{emoji}</div>
+      <Icon size={36} className="mb-4 text-3" />
       <p className="text-lg font-bold text-1 mb-1">{title}</p>
       <p className="text-sm text-2 mb-5 max-w-[260px] leading-relaxed">{desc}</p>
       {type !== 'done' && (

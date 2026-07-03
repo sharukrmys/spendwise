@@ -1,18 +1,33 @@
 // ─── Google Drive Sync Service ──────────────────────────────────────────────
 // Stores a single JSON backup in the user's Google Drive "App Data Folder".
-// Shared groups are stored in regular Drive files (drive.file scope).
+// Shared groups are stored in regular Drive files, accessed via drive.file
+// scope + Google Picker — see note below.
 //
 // OAuth flow: Google Identity Services (GIS) Token Client — the recommended
 // approach for SPAs. Loads the GIS script lazily at runtime.
 // Scopes: drive.appdata (private backup) + drive.file (shared groups) + profile
 //
-// Setup: set VITE_GOOGLE_CLIENT_ID in .env.local
-// Google Cloud Console: add your app URL to Authorized JavaScript origins only.
+// Why drive.file + Picker instead of full `drive` scope: `drive.file` only
+// grants an app access to files the SAME account created or explicitly
+// opened — it does not extend to other accounts, even with "anyone with the
+// link" permission set. The full `drive` scope would fix that, but it's a
+// Google "sensitive scope" that triggers the scary "Google hasn't verified
+// this app" warning and a 100-user cap until formally verified. Google's
+// sanctioned alternative is: share the file with each member's specific
+// email (so it's visible to them), then have them "open" it once via Google
+// Picker — that single open grants this app per-file drive.file access to
+// it, permanently, without ever requesting the sensitive scope.
+//
+// Setup: set VITE_GOOGLE_CLIENT_ID and VITE_GOOGLE_API_KEY in .env.local
+// Google Cloud Console: add your app URL to Authorized JavaScript origins,
+// and enable the Google Picker API for the API key.
 // ────────────────────────────────────────────────────────────────────────────
 
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined
-// drive.appdata  → private backup folder (invisible in Drive UI)
-// drive.file     → create/edit regular Drive files for shared groups
+const API_KEY = import.meta.env.VITE_GOOGLE_API_KEY as string | undefined
+// drive.appdata → private personal-backup folder (invisible in Drive UI, per-account only)
+// drive.file    → per-file access to shared group files — see note above for how
+//                 other members get access without the sensitive full `drive` scope
 const SCOPES = [
   'https://www.googleapis.com/auth/drive.appdata',
   'https://www.googleapis.com/auth/drive.file',
@@ -30,6 +45,35 @@ export interface GoogleUser {
   picture: string
 }
 
+interface PickerDocument {
+  id: string
+  name: string
+}
+
+interface PickerResponse {
+  action: string
+  docs?: PickerDocument[]
+}
+
+interface PickerView {
+  setOwnedByMe(v: boolean): PickerView
+  setIncludeFolders(v: boolean): PickerView
+  setMimeTypes(v: string): PickerView
+}
+
+interface PickerInstance {
+  setVisible(v: boolean): void
+}
+
+interface PickerBuilder {
+  addView(view: PickerView): PickerBuilder
+  setOAuthToken(token: string): PickerBuilder
+  setDeveloperKey(key: string): PickerBuilder
+  setCallback(cb: (data: PickerResponse) => void): PickerBuilder
+  setTitle(title: string): PickerBuilder
+  build(): PickerInstance
+}
+
 declare global {
   interface Window {
     google?: {
@@ -44,6 +88,15 @@ declare global {
           revoke(token: string, done: () => void): void
         }
       }
+      picker: {
+        ViewId: { DOCS: string }
+        Action: { PICKED: string; CANCEL: string }
+        DocsView: new (viewId?: string) => PickerView
+        PickerBuilder: new () => PickerBuilder
+      }
+    }
+    gapi?: {
+      load(mod: string, cb: () => void): void
     }
   }
 }
@@ -103,6 +156,30 @@ function loadGIS(): Promise<void> {
     s.onerror = () => reject(new Error('Failed to load Google Identity Services'))
     document.head.appendChild(s)
   })
+}
+
+// ─── Load Google Picker lazily ────────────────────────────────────────────────
+
+let _pickerReady: Promise<void> | null = null
+function loadPicker(): Promise<void> {
+  if (_pickerReady) return _pickerReady
+  _pickerReady = new Promise((resolve, reject) => {
+    const loadPickerModule = () => window.gapi!.load('picker', () => resolve())
+    if (window.gapi?.load) { loadPickerModule(); return }
+    const existing = document.querySelector('script[src*="apis.google.com/js/api.js"]')
+    if (existing) {
+      existing.addEventListener('load', loadPickerModule)
+      existing.addEventListener('error', () => reject(new Error('Failed to load Google API script')))
+      return
+    }
+    const s = document.createElement('script')
+    s.src = 'https://apis.google.com/js/api.js'
+    s.async = true
+    s.onload = loadPickerModule
+    s.onerror = () => reject(new Error('Failed to load Google API script'))
+    document.head.appendChild(s)
+  })
+  return _pickerReady
 }
 
 // ─── OAuth via GIS Token Client ───────────────────────────────────────────────
@@ -294,15 +371,42 @@ export async function pullFromDrive(): Promise<unknown | null> {
 }
 
 // ─── Shared Group Drive Files ────────────────────────────────────────────────
-// Each shared group is a regular Drive file (not appDataFolder) with
-// "anyone with link can write" permission. The file ID is the invite/share code.
-// Any member who has signed in to their own Google account can read & write it.
+// Each shared group is a regular Drive file (not appDataFolder), named after
+// the group so it's recognizable in Google Picker. The file ID is the
+// invite/share code. Two access mechanisms layer on top of each other:
+//  1. Named-email `writer` permission for each member with an email set —
+//     makes the file show up under that member's "Shared with me".
+//  2. "Anyone with the link: writer" as a fallback, so the raw Drive link
+//     always works even for members without an email on file.
+// Neither alone is enough for a DIFFERENT Google account to read/write the
+// file via our drive.file-scoped API calls — the member must also "open" the
+// file once via `pickSharedGroupFile` (Google Picker), which is what
+// actually grants this app per-file drive.file access to it going forward.
+
+/** Grant a specific Google account write access to a shared group file. Best-effort. */
+export async function grantMemberAccess(fileId: string, email: string): Promise<void> {
+  const token = await getToken()
+  const res = await fetch(`${DRIVE_API}/files/${fileId}/permissions?sendNotificationEmail=false`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ role: 'writer', type: 'user', emailAddress: email }),
+  })
+  if (!res.ok) throw new Error(`Failed to grant access to ${email}: ${res.status}`)
+}
 
 /** Create a new shared group file in the user's Drive. Returns the file ID (= share code). */
-export async function createSharedGroupFile(groupId: string, data: unknown): Promise<string> {
+export async function createSharedGroupFile(
+  groupId: string,
+  groupName: string,
+  data: unknown,
+  memberEmails: string[] = [],
+): Promise<string> {
   const token = await getToken()
   const boundary = '-------SRGroupBoundary'
-  const metadata = JSON.stringify({ name: `sr-group-${groupId}.json` })
+  const metadata = JSON.stringify({ name: `SR Expense Group — ${groupName} (${groupId.slice(0, 6)}).json` })
   const body = JSON.stringify(data)
   const multipart = [
     `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}`,
@@ -319,17 +423,17 @@ export async function createSharedGroupFile(groupId: string, data: unknown): Pro
     body: multipart,
   })
   if (!createRes.ok) {
-    if (createRes.status === 403) {
-      // The cached token predates the drive.file scope. Force fresh consent.
+    if (createRes.status === 401) {
       clearToken()
-      throw new Error('Drive permission upgrade required. Please disconnect and reconnect Google Drive in Settings, then try again.')
+      throw new Error('Google session expired — please reconnect Google Drive and try again.')
     }
     throw new Error(`Failed to create shared group file: ${createRes.status}`)
   }
   const file = await createRes.json()
   const fileId: string = file.id
 
-  // Grant write access to anyone with the link
+  // Fallback: anyone with the raw link can still write (doesn't by itself grant
+  // this app drive.file access for other accounts — see note above).
   const permRes = await fetch(`${DRIVE_API}/files/${fileId}/permissions`, {
     method: 'POST',
     headers: {
@@ -340,16 +444,72 @@ export async function createSharedGroupFile(groupId: string, data: unknown): Pro
   })
   if (!permRes.ok) throw new Error(`Failed to set shared group permissions: ${permRes.status}`)
 
+  // Named-email grants — best-effort per member, so one bad email doesn't fail the whole share.
+  await Promise.all(
+    memberEmails.map((email) => grantMemberAccess(fileId, email).catch((e) => console.error(e))),
+  )
+
   return fileId
 }
 
-/** Read a shared group file. Requires the caller to be signed in to any Google account. */
+/**
+ * Opens Google Picker so the user can "open" a file shared with them, which
+ * grants this app per-file drive.file access to it — required before this
+ * app's own API calls (readSharedGroupFile / writeSharedGroupFile) can reach
+ * a file it didn't create, regardless of the file's sharing permissions.
+ * Resolves true only if the user picked the file matching `expectedFileId`,
+ * false if they cancelled or picked something else.
+ */
+export async function pickSharedGroupFile(expectedFileId: string): Promise<boolean> {
+  if (!API_KEY) throw new Error('VITE_GOOGLE_API_KEY is not set — Google Picker needs an API key. See .env.example.')
+  const token = await getToken()
+  await loadPicker()
+
+  return new Promise((resolve, reject) => {
+    try {
+      const view = new window.google!.picker.DocsView(window.google!.picker.ViewId.DOCS)
+        .setOwnedByMe(false)
+        .setIncludeFolders(false)
+        .setMimeTypes('application/json')
+
+      const picker = new window.google!.picker.PickerBuilder()
+        .addView(view)
+        .setOAuthToken(token)
+        .setDeveloperKey(API_KEY!)
+        .setTitle('Select the shared group file')
+        .setCallback((data) => {
+          if (data.action === window.google!.picker.Action.PICKED) {
+            resolve(data.docs?.[0]?.id === expectedFileId)
+          } else if (data.action === window.google!.picker.Action.CANCEL) {
+            resolve(false)
+          }
+        })
+        .build()
+      picker.setVisible(true)
+    } catch (e) {
+      reject(e)
+    }
+  })
+}
+
+/** Read a shared group file. The caller must have already opened it via `pickSharedGroupFile` (or created it). */
 export async function readSharedGroupFile(fileId: string): Promise<unknown | null> {
   const token = await getToken()
   const res = await fetch(`${DRIVE_API}/files/${fileId}?alt=media`, {
     headers: { Authorization: `Bearer ${token}` },
   })
-  if (!res.ok) return null
+  if (res.status === 401) {
+    clearToken()
+    throw new Error('Google session expired — please reconnect Google Drive and try again.')
+  }
+  if (res.status === 403 || res.status === 404) {
+    // Drive returns 404 (not 403) when this account has zero access grant to the
+    // file at all — expected until the member has opened it once via Picker.
+    throw new Error('Could not open that shared group yet. Select it in the picker dialog to grant access, then try again. If it never shows up, ask the owner to add your Google email to the group and re-share.')
+  }
+  if (!res.ok) {
+    throw new Error(`Could not reach Google Drive (error ${res.status}). Check your connection and try again.`)
+  }
   return res.json()
 }
 
@@ -364,6 +524,13 @@ export async function writeSharedGroupFile(fileId: string, data: unknown): Promi
     },
     body: JSON.stringify(data),
   })
+  if (res.status === 401) {
+    clearToken()
+    throw new Error('Google session expired — please reconnect Google Drive and try again.')
+  }
+  if (res.status === 403 || res.status === 404) {
+    throw new Error('Could not sync this shared group — this device may have lost access. Open the group\'s invite code again to re-grant access via the picker.')
+  }
   if (!res.ok) throw new Error(`Failed to update shared group file: ${res.status}`)
 }
 

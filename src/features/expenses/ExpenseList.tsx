@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { format, isToday, isYesterday } from 'date-fns'
+import { Wallet } from 'lucide-react'
 import { ExpenseItem } from './ExpenseItem'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Spinner } from '@/components/ui/Spinner'
@@ -11,6 +12,9 @@ interface ExpenseListProps {
   loading?: boolean
   compact?: boolean
   onAdd?: () => void
+  // Pixels to offset the sticky day header by — needed when this list is nested
+  // under another sticky header (e.g. a month divider) so the two don't overlap.
+  stickyOffset?: number
 }
 
 function groupLabel(dateStr: string): string {
@@ -20,7 +24,7 @@ function groupLabel(dateStr: string): string {
   return format(date, 'EEEE, MMM d')
 }
 
-export function ExpenseList({ expenses, loading, compact, onAdd }: ExpenseListProps) {
+export function ExpenseList({ expenses, loading, compact, onAdd, stickyOffset = 0 }: ExpenseListProps) {
   const grouped = useMemo(() => {
     const byDay = groupBy(expenses, e => format(new Date(e.date), 'yyyy-MM-dd'))
     return Object.entries(byDay).sort(([a], [b]) => b.localeCompare(a))
@@ -34,7 +38,7 @@ export function ExpenseList({ expenses, loading, compact, onAdd }: ExpenseListPr
 
   if (expenses.length === 0) return (
     <EmptyState
-      icon="💸"
+      icon={<Wallet size={40} />}
       title="No transactions yet"
       description="Tap the + button to record your first expense."
       action={onAdd ? { label: 'Add Transaction', onClick: onAdd } : undefined}
@@ -50,7 +54,7 @@ export function ExpenseList({ expenses, loading, compact, onAdd }: ExpenseListPr
         return (
           <div key={dateStr}>
             {!compact && (
-              <div className="flex items-center justify-between px-4 py-2 sticky top-0 z-10 bg-base">
+              <div className="flex items-center justify-between px-4 py-2 sticky z-10 bg-base" style={{ top: stickyOffset }}>
                 <span className="text-xs font-semibold text-3 uppercase tracking-wide">
                   {groupLabel(dateStr)}
                 </span>

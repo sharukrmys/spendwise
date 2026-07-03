@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { format } from 'date-fns'
-import { X, MapPin, RefreshCw, GripVertical, ChevronDown, ChevronUp, ArrowRight } from 'lucide-react'
+import { X, MapPin, RefreshCw, GripVertical, ChevronDown, ChevronUp, ArrowRight, CalendarDays, StickyNote, Check, ListChecks, ShoppingCart, Settings } from 'lucide-react'
 import { Reorder, useDragControls } from 'framer-motion'
 import { Select } from '@/components/ui/Input'
 import { useTaskStore } from '@/store/useTaskStore'
@@ -210,7 +210,7 @@ export function TaskForm({ onClose, task, defaultType = 'todo' }: TaskFormProps)
         convertedExpenseId: task?.convertedExpenseId,
       }
       if (task) { await updateTask(task.id, data); toast.success('Task updated') }
-      else { await addTask(data); toast.success(type === 'checklist' ? 'Checklist created!' : 'Task added!') }
+      else { await addTask(data); toast.success(type === 'checklist' ? 'Checklist created' : 'Task added') }
       await load()
       onClose()
     } catch { toast.error('Failed to save task') }
@@ -245,7 +245,7 @@ export function TaskForm({ onClose, task, defaultType = 'todo' }: TaskFormProps)
       <div className="flex items-center gap-2 px-3 py-2.5 rounded-2xl cursor-pointer relative"
         style={{ background: 'var(--bg-card2)', border: '1px solid var(--border)' }}
         onClick={openDatePicker}>
-        <span className="text-sm shrink-0">📅</span>
+        <CalendarDays size={14} className="shrink-0 text-3" />
         <span className="text-xs text-1 truncate flex-1 font-medium">
           {dueDatetime ? format(new Date(dueDatetime), 'MMM d, yyyy · h:mm a') : 'Due date & time (optional)'}
         </span>
@@ -319,7 +319,7 @@ export function TaskForm({ onClose, task, defaultType = 'todo' }: TaskFormProps)
         <button type="button" onClick={() => setShowNotes(v => !v)}
           className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold tap transition-all"
           style={pill(showNotes || !!notes)}>
-          📝 {notes ? 'Notes ✓' : 'Notes'}
+          {notes ? <Check size={11} /> : <StickyNote size={11} />} Notes
         </button>
         <button type="button" onClick={() => setIsRecurring(v => !v)}
           className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold tap transition-all"
@@ -340,7 +340,7 @@ export function TaskForm({ onClose, task, defaultType = 'todo' }: TaskFormProps)
       )}
       {isRecurring && (
         <Select
-          options={[{ value: 'daily', label: '🔁 Daily' }, { value: 'weekly', label: '🔁 Weekly' }, { value: 'monthly', label: '🔁 Monthly' }, { value: 'yearly', label: '🔁 Yearly' }]}
+          options={[{ value: 'daily', label: 'Daily' }, { value: 'weekly', label: 'Weekly' }, { value: 'monthly', label: 'Monthly' }, { value: 'yearly', label: 'Yearly' }]}
           value={recurrenceInterval}
           onChange={e => setRecurrenceInterval(e.target.value as RecurrenceInterval)}
         />
@@ -356,8 +356,9 @@ export function TaskForm({ onClose, task, defaultType = 'todo' }: TaskFormProps)
         <div className="flex gap-1.5 px-4 pt-3 pb-2.5">
           {(['todo', 'checklist'] as TaskType[]).map(t => (
             <button key={t} type="button" onClick={() => setType(t)}
-              className={cn('flex-1 py-2 rounded-xl text-sm font-bold tap transition-all', type === t ? 'grad-brand text-white shadow-lg' : 'bg-card2 text-2')}>
-              {t === 'todo' ? '☑ Todo' : '🛒 Checklist'}
+              className={cn('flex items-center justify-center gap-1.5 flex-1 py-2 rounded-xl text-sm font-bold tap transition-all', type === t ? 'grad-brand text-white shadow-lg' : 'bg-card2 text-2')}>
+              {t === 'todo' ? <ListChecks size={15} /> : <ShoppingCart size={15} />}
+              {t === 'todo' ? 'Todo' : 'Checklist'}
             </button>
           ))}
         </div>
@@ -408,7 +409,7 @@ export function TaskForm({ onClose, task, defaultType = 'todo' }: TaskFormProps)
               className="flex items-center justify-between px-3 py-2 rounded-xl tap text-xs font-semibold transition-all"
               style={{ background: 'var(--bg-card2)', border: '1px solid var(--border)', color: 'var(--text-2)' }}>
               <span className="flex items-center gap-1.5">
-                ⚙️ Options
+                <Settings size={12} /> Options
                 {(dueDatetime || categoryId || priority !== 'medium' || location || notes || isRecurring) && (
                   <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: 'var(--brand)' }} />
                 )}
@@ -438,7 +439,8 @@ export function TaskForm({ onClose, task, defaultType = 'todo' }: TaskFormProps)
                   style={shoppingMode
                     ? { background: 'rgba(124,92,252,0.15)', border: '1px solid rgba(124,92,252,0.4)', color: 'var(--brand)' }
                     : { background: 'var(--bg-card2)', border: '1px solid var(--border)', color: 'var(--text-3)' }}>
-                  {shoppingMode ? '🛒 Shopping' : '📝 Generic'}
+                  {shoppingMode ? <ShoppingCart size={11} /> : <StickyNote size={11} />}
+                  {shoppingMode ? 'Shopping' : 'Generic'}
                 </button>
               </div>
 

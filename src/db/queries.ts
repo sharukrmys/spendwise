@@ -70,7 +70,7 @@ export const expenseQueries = {
   },
 
   async getRecurring(): Promise<Expense[]> {
-    return db.expenses.where("isRecurring").equals(1).toArray();
+    return db.expenses.filter((e) => e.isRecurring === true).toArray();
   },
 
   async getTotal(start?: number, end?: number): Promise<number> {
@@ -128,14 +128,15 @@ export const budgetQueries = {
     return db.budgets.toArray();
   },
 
-  async add(data: Omit<Budget, "id" | "createdAt">): Promise<Budget> {
-    const budget: Budget = { ...data, id: generateId(), createdAt: Date.now() };
+  async add(data: Omit<Budget, "id" | "createdAt" | "updatedAt">): Promise<Budget> {
+    const now = Date.now();
+    const budget: Budget = { ...data, id: generateId(), createdAt: now, updatedAt: now };
     await db.budgets.add(budget);
     return budget;
   },
 
   async update(id: string, data: Partial<Budget>): Promise<void> {
-    await db.budgets.update(id, data);
+    await db.budgets.update(id, { ...data, updatedAt: Date.now() });
   },
 
   async delete(id: string): Promise<void> {
@@ -318,11 +319,22 @@ export const backupQueries = {
         );
         if (customCats.length) await db.categories.bulkPut(customCats);
 
-        // Tags: upsert by ID (new tags are added, existing updated)
+        // Tags: upsert by ID. Tags are immutable after creation (no update
+        // path), so a plain union by ID never loses an edit.
         if (data.tags.length) await db.tags.bulkPut(data.tags);
 
-        // Budgets: upsert by ID
-        if (data.budgets.length) await db.budgets.bulkPut(data.budgets);
+        // Budgets: union by ID, newest updatedAt wins (same recency rule as
+        // expenses/groups/tasks) — a plain bulkPut here would let a stale
+        // cloud copy silently clobber a budget edited locally after last sync.
+        const localBudgets = await db.budgets.toArray();
+        const budgetMap = new Map(localBudgets.map((b) => [b.id, b]));
+        for (const inc of data.budgets) {
+          const cur = budgetMap.get(inc.id);
+          const incTs = inc.updatedAt ?? inc.createdAt;
+          const curTs = cur ? (cur.updatedAt ?? cur.createdAt) : 0;
+          if (!cur || incTs >= curTs) budgetMap.set(inc.id, inc);
+        }
+        await db.budgets.bulkPut(Array.from(budgetMap.values()));
 
         // Groups: union by ID, newest updatedAt wins
         const localGroups = await db.groups.toArray();

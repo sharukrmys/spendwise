@@ -7,6 +7,7 @@ import {
   readSharedGroupFile,
   writeSharedGroupFile,
   deleteSharedGroupFile,
+  grantMemberAccess,
 } from "@/services/googleSync";
 
 interface GroupState {
@@ -27,8 +28,14 @@ interface GroupState {
   ) => Promise<Group>;
   updateGroup: (id: string, data: Partial<Group>) => Promise<void>;
   deleteGroup: (id: string) => Promise<void>;
-  addMember: (groupId: string, name: string, email?: string) => Promise<void>;
+  addMember: (
+    groupId: string,
+    name: string,
+    email?: string,
+  ) => Promise<GroupMember>;
   removeMember: (groupId: string, memberId: string) => Promise<void>;
+  /** Mark a member as "me" on this device. Local-only, not synced to other members. */
+  setMyMember: (groupId: string, memberId: string | undefined) => Promise<void>;
   addGroupExpense: (
     data: Omit<GroupExpense, "id" | "createdAt">,
   ) => Promise<GroupExpense>;
@@ -135,21 +142,46 @@ export const useGroupStore = create<GroupState>((set, get) => ({
       avatarColor: avatarColor(name),
     };
     const group = get().groups.find((g) => g.id === groupId);
-    if (!group) return;
+    if (!group) return member;
     const updated = { ...group, members: [...group.members, member] };
     await groupQueries.update(groupId, { members: updated.members });
     set((s) => ({
       groups: s.groups.map((g) => (g.id === groupId ? updated : g)),
     }));
+    // Group is already shared and this device has write access to the Drive
+    // file — best-effort grant the new member's email so they can Picker-open
+    // it too. Requires `email` and `writersCanShare` (Drive's default); safe
+    // to fail silently if this device isn't the owner and can't grant access.
+    if (group.shareCode && email) {
+      grantMemberAccess(group.shareCode, email).catch((e) => console.error(e));
+    }
+    return member;
   },
 
   removeMember: async (groupId, memberId) => {
     const group = get().groups.find((g) => g.id === groupId);
     if (!group) return;
     const members = group.members.filter((m) => m.id !== memberId);
-    await groupQueries.update(groupId, { members });
+    const clearMe = group.myMemberId === memberId;
+    await groupQueries.update(groupId, {
+      members,
+      ...(clearMe ? { myMemberId: undefined } : {}),
+    });
     set((s) => ({
-      groups: s.groups.map((g) => (g.id === groupId ? { ...g, members } : g)),
+      groups: s.groups.map((g) =>
+        g.id === groupId
+          ? { ...g, members, ...(clearMe ? { myMemberId: undefined } : {}) }
+          : g,
+      ),
+    }));
+  },
+
+  setMyMember: async (groupId, memberId) => {
+    await groupQueries.update(groupId, { myMemberId: memberId });
+    set((s) => ({
+      groups: s.groups.map((g) =>
+        g.id === groupId ? { ...g, myMemberId: memberId } : g,
+      ),
     }));
   },
 
@@ -272,7 +304,10 @@ export const useGroupStore = create<GroupState>((set, get) => ({
         get().groupExpenses[groupId] ??
         (await groupExpenseQueries.getByGroup(groupId));
       const payload = { group, expenses, syncedAt: Date.now() };
-      const fileId = await createSharedGroupFile(groupId, payload);
+      const memberEmails = group.members
+        .map((m) => m.email)
+        .filter((e): e is string => !!e);
+      const fileId = await createSharedGroupFile(groupId, group.name, payload, memberEmails);
       const updated = { ...group, shareCode: fileId, isOwner: true };
       await groupQueries.update(groupId, { shareCode: fileId, isOwner: true });
       set((s) => ({
@@ -295,17 +330,9 @@ export const useGroupStore = create<GroupState>((set, get) => ({
       } | null;
       if (!payload?.group)
         throw new Error("Invalid share code or group not found");
-      // Save group locally, marking as a non-owner member
+      // Save group locally, marking as a non-owner member. put() upserts by id —
+      // works whether this is the first join or a re-join of an existing local group.
       const group: Group = { ...payload.group, shareCode, isOwner: false };
-      await groupQueries.update(group.id, group).catch(async () => {
-        await groupQueries.add({
-          name: group.name,
-          description: group.description,
-          members: group.members,
-          currency: group.currency,
-        });
-      });
-      // Upsert — put handles both insert and update
       const db = (await import("@/db/schema")).db;
       await db.groups.put(group);
       // Save expenses

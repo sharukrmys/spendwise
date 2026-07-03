@@ -71,7 +71,7 @@ export async function exportPersonalMonthly(
 
   const wsMonths = XLSX.utils.aoa_to_sheet(monthRows)
   wsMonths['!cols'] = colWidths([18, 14, 14, 14, 14, 14, 12, 20, 18])
-  XLSX.utils.book_append_sheet(wb, wsMonths, '📅 Monthly Summary')
+  XLSX.utils.book_append_sheet(wb, wsMonths, 'Monthly Summary')
 
   // ── Sheet 2: All Transactions ────────────────────────────────────────
   const sorted = [...allExpenses].sort((a, b) => b.date - a.date)
@@ -107,7 +107,7 @@ export async function exportPersonalMonthly(
 
   const wsTx = XLSX.utils.aoa_to_sheet(txRows)
   wsTx['!cols'] = colWidths([14, 8, 10, 18, 32, 14, 18, 20, 10, 16])
-  XLSX.utils.book_append_sheet(wb, wsTx, '📋 All Transactions')
+  XLSX.utils.book_append_sheet(wb, wsTx, 'All Transactions')
 
   // ── Sheet 3: By Category ─────────────────────────────────────────────
   const catMap: Record<string, { amount: number; count: number; income: number }> = {}
@@ -138,7 +138,7 @@ export async function exportPersonalMonthly(
 
   const wsCat = XLSX.utils.aoa_to_sheet(catRows)
   wsCat['!cols'] = colWidths([22, 16, 20, 14, 20])
-  XLSX.utils.book_append_sheet(wb, wsCat, '🏷 By Category')
+  XLSX.utils.book_append_sheet(wb, wsCat, 'By Category')
 
   // ── Sheet 4: By Payment Method ───────────────────────────────────────
   const pmMap: Record<string, { amount: number; count: number }> = {}
@@ -159,7 +159,7 @@ export async function exportPersonalMonthly(
 
   const wsPm = XLSX.utils.aoa_to_sheet(pmRows)
   wsPm['!cols'] = colWidths([22, 16, 16, 14])
-  XLSX.utils.book_append_sheet(wb, wsPm, '💳 Payment Methods')
+  XLSX.utils.book_append_sheet(wb, wsPm, 'Payment Methods')
 
   // ── Sheet 5: Daily Trend (chart-ready) ──────────────────────────────
   // Last 90 days, one row per day
@@ -187,7 +187,7 @@ export async function exportPersonalMonthly(
 
   const wsDaily = XLSX.utils.aoa_to_sheet(dailyRows)
   wsDaily['!cols'] = colWidths([16, 8, 14, 14, 14, 20])
-  XLSX.utils.book_append_sheet(wb, wsDaily, '📈 Daily Trend')
+  XLSX.utils.book_append_sheet(wb, wsDaily, 'Daily Trend')
 
   // ── Sheet 6: Insights ─────────────────────────────────────────────────
   const thisMonth = allExpenses.filter(e => {
@@ -207,7 +207,7 @@ export async function exportPersonalMonthly(
   })()
 
   const insightRows: unknown[][] = [
-    ['💡 Financial Insights', ''],
+    ['Financial Insights', ''],
     ['', ''],
     ['This Month', ''],
     ['Income', thisIncome],
@@ -230,7 +230,7 @@ export async function exportPersonalMonthly(
   wsInsights['!cols'] = colWidths([28, 20])
   if (!wsInsights['!merges']) wsInsights['!merges'] = []
   wsInsights['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: 1 } })
-  XLSX.utils.book_append_sheet(wb, wsInsights, '💡 Insights')
+  XLSX.utils.book_append_sheet(wb, wsInsights, 'Insights')
 
   triggerDownload(wb, `expenses_${format(new Date(), 'yyyy-MM')}.xlsx`)
 }
@@ -282,7 +282,7 @@ export function exportGroupData(
   wsSummary['!cols'] = colWidths([28, 40])
   if (!wsSummary['!merges']) wsSummary['!merges'] = []
   wsSummary['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: 1 } })
-  XLSX.utils.book_append_sheet(wb, wsSummary, '📊 Summary')
+  XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary')
 
   // ── Sheet 2: All Expenses (detailed) ─────────────────────────────────
   // Header row — description columns + one column per member split
@@ -332,7 +332,7 @@ export function exportGroupData(
     ...group.members.map(() => 10),
     ...group.members.map(() => 18),
   ])
-  XLSX.utils.book_append_sheet(wb, wsExp, '📋 Expenses Detail')
+  XLSX.utils.book_append_sheet(wb, wsExp, 'Expenses Detail')
 
   // ── Sheet 3: Per Member Report ────────────────────────────────────────
   const memberRows: unknown[][] = [[
@@ -365,7 +365,7 @@ export function exportGroupData(
 
   const wsMember = XLSX.utils.aoa_to_sheet(memberRows)
   wsMember['!cols'] = colWidths([18, 14, 14, 14, 14, 14, 14, 16, 16])
-  XLSX.utils.book_append_sheet(wb, wsMember, '👥 Per Member')
+  XLSX.utils.book_append_sheet(wb, wsMember, 'Per Member')
 
   // ── Sheet 4: Settlement Log ───────────────────────────────────────────
   const settleRows: unknown[][] = [[
@@ -394,7 +394,7 @@ export function exportGroupData(
 
   const wsSettle = XLSX.utils.aoa_to_sheet(settleRows)
   wsSettle['!cols'] = colWidths([28, 16, 14, 12, 22, 16, 16])
-  XLSX.utils.book_append_sheet(wb, wsSettle, '🤝 Settlement Log')
+  XLSX.utils.book_append_sheet(wb, wsSettle, 'Settlement Log')
 
   // ── Sheet 5: By Category ─────────────────────────────────────────────
   const groupCatMap: Record<string, { amount: number; count: number }> = {}
@@ -430,7 +430,7 @@ export function exportGroupData(
 
   const wsGroupCat = XLSX.utils.aoa_to_sheet(groupCatRows)
   wsGroupCat['!cols'] = colWidths([22, 14, 16, 12, 16, ...group.members.map(() => 14)])
-  XLSX.utils.book_append_sheet(wb, wsGroupCat, '🏷 By Category')
+  XLSX.utils.book_append_sheet(wb, wsGroupCat, 'By Category')
 
   // ── Sheet 6: Who Owes Whom (net matrix) ──────────────────────────────
   const oweRows: unknown[][] = [
@@ -460,7 +460,7 @@ export function exportGroupData(
   wsOwes['!cols'] = colWidths([20, ...group.members.map(() => 16)])
   if (!wsOwes['!merges']) wsOwes['!merges'] = []
   wsOwes['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: group.members.length } })
-  XLSX.utils.book_append_sheet(wb, wsOwes, '💸 Who Owes Whom')
+  XLSX.utils.book_append_sheet(wb, wsOwes, 'Who Owes Whom')
 
   const safeName = group.name.replace(/[^a-zA-Z0-9_-]/g, '_')
   triggerDownload(wb, `group_${safeName}_${format(new Date(), 'yyyy-MM-dd')}.xlsx`)

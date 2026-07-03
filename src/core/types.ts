@@ -67,6 +67,7 @@ export interface Budget {
   period: "weekly" | "monthly" | "yearly";
   startDate: number;
   createdAt: number;
+  updatedAt: number;
 }
 
 export interface GroupMember {
@@ -116,6 +117,8 @@ export interface Group {
   isOwner?: boolean;
   /** Soft-archived groups are hidden from main list but preserved */
   archived?: boolean;
+  /** Member id that represents "me" on this device. Local-only — never overwritten by a remote sync merge. */
+  myMemberId?: string;
 }
 
 export type ThemePreset =
@@ -148,6 +151,9 @@ export interface AppSettings {
   tripName: string;
   tripStartDate?: number;
   tripEndDate?: number;
+  // Highest logging-streak milestone already celebrated, so the confetti
+  // burst on the dashboard only fires once per milestone, not every render.
+  lastCelebratedStreak: number;
 }
 
 // ─── Analytics / Derived Types ─────────────────────────────────────

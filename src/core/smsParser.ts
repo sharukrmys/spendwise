@@ -186,7 +186,11 @@ const CATEGORY_KEYWORDS: [RegExp, string][] = [
   [/\b(ATM|CASH WITHDRAWAL|WITHDRAWAL)\b/i, "Other"],
 ];
 
-function parseCategoryHint(
+/**
+ * Guesses a category name from free text via merchant/keyword matching.
+ * Shared by SMS parsing and receipt OCR — both hand it raw recognized text.
+ */
+export function parseCategoryHint(
   text: string,
   merchant?: string,
 ): string | undefined {

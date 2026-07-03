@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { Search, X, ArrowRight } from 'lucide-react'
+import { Search, X, ArrowRight, ShoppingCart, CheckCircle2 } from 'lucide-react'
 import Fuse from 'fuse.js'
 import { useNavigate } from 'react-router-dom'
 import { useTaskStore } from '@/store/useTaskStore'
@@ -158,7 +158,7 @@ export function GlobalSearch({ open, onClose }: GlobalSearchProps) {
                     className="w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0"
                     style={{ background: 'rgba(124,92,252,0.12)' }}
                   >
-                    {r.item.type === 'checklist' ? '🛒' : '✅'}
+                    {r.item.type === 'checklist' ? <ShoppingCart size={17} /> : <CheckCircle2 size={17} />}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-1 truncate">{r.item.title}</p>

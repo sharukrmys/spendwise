@@ -10,6 +10,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
+      injectRegister: false,
       includeAssets: ["favicon.ico", "apple-touch-icon.png", "masked-icon.svg"],
       manifest: {
         name: "SR Expense",
@@ -39,6 +40,25 @@ export default defineConfig({
             url: "url",
           },
         },
+        // Long-press the installed app icon (Android/desktop Chrome) for
+        // instant jump-list actions. No effect on iOS Safari — it just
+        // ignores unsupported manifest fields, so this is safe everywhere.
+        shortcuts: [
+          {
+            name: "Quick Add",
+            short_name: "Quick Add",
+            description: "Log an expense in two taps",
+            url: "/quick-add",
+            icons: [{ src: "pwa-192x192.png", sizes: "192x192", type: "image/png" }],
+          },
+          {
+            name: "Reports",
+            short_name: "Reports",
+            description: "View spending reports",
+            url: "/reports",
+            icons: [{ src: "pwa-192x192.png", sizes: "192x192", type: "image/png" }],
+          },
+        ],
       },
       workbox: {
         cleanupOutdatedCaches: true,

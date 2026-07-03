@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { CheckCircle, XCircle, AlertTriangle, Info, X } from 'lucide-react'
 import { generateId } from '@/core/utils'
 
@@ -117,11 +118,16 @@ function ToastItem({ toast: t, onRemove }: { toast: Toast; onRemove: () => void 
 export function ToastContainer() {
   const { toasts, remove } = useToastStore()
 
-  return (
-    <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[100] flex flex-col gap-2 items-center">
+  // Portalled to <body> so toasts always render above Modal (which also portals
+  // to <body>) — a non-portalled toast is trapped inside AppLayout's own
+  // `position: fixed` stacking context and can never out-stack a Modal
+  // regardless of z-index, since z-index only compares within the same context.
+  return createPortal(
+    <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[200] flex flex-col gap-2 items-center">
       {toasts.map(t => (
         <ToastItem key={t.id} toast={t} onRemove={() => remove(t.id)} />
       ))}
-    </div>
+    </div>,
+    document.body
   )
 }

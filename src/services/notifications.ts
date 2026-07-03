@@ -28,16 +28,16 @@ export function notify(title: string, body: string, icon = '/pwa-192x192.png') {
 export function notifyBudgetAlert(spent: number, budget: number, currency: string) {
   const pct = (spent / budget) * 100
   if (pct >= 100) {
-    notify('Budget exceeded 🚨', `You've spent ${currency} ${spent.toFixed(0)} — ${(pct - 100).toFixed(0)}% over your ${currency} ${budget.toFixed(0)} budget.`)
+    notify('Budget exceeded', `You've spent ${currency} ${spent.toFixed(0)} — ${(pct - 100).toFixed(0)}% over your ${currency} ${budget.toFixed(0)} budget.`)
   } else if (pct >= 85) {
-    notify('Budget warning ⚠️', `You've used ${pct.toFixed(0)}% of your ${currency} ${budget.toFixed(0)} monthly budget.`)
+    notify('Budget warning', `You've used ${pct.toFixed(0)}% of your ${currency} ${budget.toFixed(0)} monthly budget.`)
   }
 }
 
 export function notifyOverdueTasks(count: number) {
   if (count <= 0) return
   notify(
-    `${count} overdue task${count > 1 ? 's' : ''} 📋`,
+    `${count} overdue task${count > 1 ? 's' : ''}`,
     count === 1 ? 'You have 1 overdue task.' : `You have ${count} overdue tasks waiting.`
   )
 }

@@ -11,6 +11,10 @@ interface ExpenseState {
   expenses: Expense[]
   loading: boolean
   error: string | null
+  // Bumped on every mutation (including the deferred delete finalize, which
+  // doesn't otherwise touch `expenses`) so screens that cache a wider,
+  // multi-month dataset alongside the month-scoped `expenses` know when to refetch.
+  dataVersion: number
   filter: {
     startDate: number
     endDate: number
@@ -40,6 +44,7 @@ export const useExpenseStore = create<ExpenseState>()((set, get) => ({
     expenses: [],
     loading: false,
     error: null,
+    dataVersion: 0,
     filter: defaultFilter(),
 
     load: async () => {
@@ -65,7 +70,7 @@ export const useExpenseStore = create<ExpenseState>()((set, get) => ({
 
     addExpense: async (data) => {
       const expense = await expenseQueries.add(data)
-      set(s => ({ expenses: [expense, ...s.expenses] }))
+      set(s => ({ expenses: [expense, ...s.expenses], dataVersion: s.dataVersion + 1 }))
       useSyncStore.getState().scheduleSync()
       return expense
     },
@@ -74,6 +79,7 @@ export const useExpenseStore = create<ExpenseState>()((set, get) => ({
       await expenseQueries.update(id, data)
       set(s => ({
         expenses: s.expenses.map(e => e.id === id ? { ...e, ...data, updatedAt: Date.now() } : e),
+        dataVersion: s.dataVersion + 1,
       }))
       useSyncStore.getState().scheduleSync()
     },
@@ -82,11 +88,14 @@ export const useExpenseStore = create<ExpenseState>()((set, get) => ({
       const expense = get().expenses.find(e => e.id === id)
       if (!expense) return
       // Optimistic remove from UI immediately
-      set(s => ({ expenses: s.expenses.filter(e => e.id !== id) }))
+      set(s => ({ expenses: s.expenses.filter(e => e.id !== id), dataVersion: s.dataVersion + 1 }))
       // Schedule actual DB delete after 5s (allows undo)
       const timer = setTimeout(async () => {
         _pendingDeletes.delete(id)
         await expenseQueries.delete(id)
+        // `expenses` was already updated optimistically above, so bump dataVersion
+        // alone to tell wider-range caches (which still had this row until now) to refetch
+        set(s => ({ dataVersion: s.dataVersion + 1 }))
         useSyncStore.getState().scheduleSync()
       }, 5000)
       _pendingDeletes.set(id, { expense, timer })
@@ -99,6 +108,7 @@ export const useExpenseStore = create<ExpenseState>()((set, get) => ({
       _pendingDeletes.delete(id)
       set(s => ({
         expenses: [...s.expenses, pending.expense].sort((a, b) => b.date - a.date),
+        dataVersion: s.dataVersion + 1,
       }))
     },
 

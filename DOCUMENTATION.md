@@ -226,7 +226,8 @@ Quick summary:
 ### How It Works
 
 1. **Connect** — tap Settings → Cloud Sync → Connect Google Drive. A Google OAuth popup appears. You grant permission to:
-   - `drive.appdata` — read/write a private app folder in your Drive (invisible in Drive UI)
+   - `drive.appdata` — read/write a private app folder in your Drive (invisible in Drive UI), used for your personal backup
+   - `drive` — full Drive read/write, used only for shared-group files (regular, visible Drive files). This is required so that other invited members — using their own Google accounts — can open and sync a group file you created; the narrower `drive.file` scope only grants access back to the account that created the file, which would make group sharing across different people impossible
    - `openid email profile` — read your name and profile photo
 
 2. **Push** — the app serialises all data to a single JSON file (`expense-backup.json`) and writes it to your Drive's `appDataFolder`. This folder is private — only this app can read it, not even you from the Drive website.
@@ -315,6 +316,7 @@ D. PUT /files/{id}            (push merged result back)
 | Scope | Purpose |
 |-------|---------|
 | `drive.appdata` | Private per-app backup folder |
+| `drive` | Read/write regular (non-appdata) Drive files — used only for shared-group JSON files, so other invited members can open a group file with their own Google account |
 | `openid email profile` | Display your name and photo in the app |
 
 ### Data at Rest

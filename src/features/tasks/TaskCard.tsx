@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { format, isToday, isTomorrow, isPast } from 'date-fns'
-import { CheckSquare, Square, ShoppingCart, Trash2, Pencil, ArrowRight, ChevronDown, ChevronUp } from 'lucide-react'
+import { CheckSquare, Square, ShoppingCart, Trash2, Pencil, ArrowRight, ChevronDown, ChevronUp, MapPin, Check } from 'lucide-react'
 import { useTaskStore } from '@/store/useTaskStore'
 import { useCategoryStore } from '@/store/useCategoryStore'
 import { useSettingsStore } from '@/store/useSettingsStore'
@@ -118,7 +118,9 @@ export function TaskCard({ task, onEdit, onConvert, compact = false }: TaskCardP
                 </span>
               )}
               {task.location && (
-                <span className="text-[10px] text-3 truncate max-w-[120px]">📍 {task.location}</span>
+                <span className="flex items-center gap-0.5 text-[10px] text-3 truncate max-w-[120px]">
+                  <MapPin size={10} className="shrink-0" /> {task.location}
+                </span>
               )}
               {displayAmount != null && displayAmount > 0 && (
                 <span className="text-[10px] font-bold" style={{ color: 'var(--brand)' }}>
@@ -151,7 +153,7 @@ export function TaskCard({ task, onEdit, onConvert, compact = false }: TaskCardP
             {/* Converted badge */}
             {task.convertedExpenseId && (
               <span className="inline-flex items-center gap-1 text-[10px] font-semibold mt-1" style={{ color: 'var(--income)' }}>
-                ✓ Logged as expense
+                <Check size={10} /> Logged as expense
               </span>
             )}
           </div>

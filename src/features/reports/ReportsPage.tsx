@@ -3,7 +3,8 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   Cell, AreaChart, Area
 } from 'recharts'
-import { Download, ChevronDown } from 'lucide-react'
+import { Download, ChevronDown, BarChart3, User, Users, Target, AlertTriangle, AlertCircle, TrendingUp, TrendingDown, CalendarDays, Wand2, Briefcase, Sun, BarChart2, Share2, type LucideIcon } from 'lucide-react'
+import { PaymentMethodIcon } from '@/components/ui/PaymentMethodIcon'
 import { useSettingsStore } from '@/store/useSettingsStore'
 import { useCategoryStore } from '@/store/useCategoryStore'
 import { useGroupStore } from '@/store/useGroupStore'
@@ -11,8 +12,9 @@ import { expenseQueries } from '@/db/queries'
 import { formatCurrency, getMonthRange, getYearRange, buildTrendData, summarizeExpenses, cn, groupExpensesToExpenses } from '@/core/utils'
 import { PAYMENT_METHOD_LABELS, CHART_COLORS } from '@/core/constants'
 import { format, subMonths, subYears } from 'date-fns'
-import type { Expense } from '@/core/types'
+import type { Expense, PaymentMethod } from '@/core/types'
 import { exportPersonalMonthly } from '@/services/exportXlsx'
+import { RecapCard, type RecapData } from './RecapCard'
 
 type Period = 'month' | 'quarter' | 'year'
 type Source = 'all' | 'personal' | string  // string = groupId
@@ -105,6 +107,7 @@ export function ReportsPage() {
   }))
 
   const paymentData = Object.entries(summary.byPaymentMethod).map(([method, amount]) => ({
+    method: method as PaymentMethod,
     name: PAYMENT_METHOD_LABELS[method] ?? method,
     value: parseFloat(amount.toFixed(2)),
   }))
@@ -170,6 +173,17 @@ export function ReportsPage() {
     }
   }
 
+  const [recapOpen, setRecapOpen] = useState(false)
+  const recapData: RecapData = useMemo(() => ({
+    monthLabel: period === 'month' ? format(new Date(), 'MMMM yyyy') : period === 'quarter' ? `Q${Math.ceil((new Date().getMonth() + 1) / 3)} ${format(new Date(), 'yyyy')}` : format(new Date(), 'yyyy'),
+    total: summary.total,
+    currency: settings.defaultCurrency,
+    showCents: settings.showCents,
+    transactionCount: onlyExpenses.length,
+    topCategory: topCat ? { name: topCat.name, amount: topCat.value, icon: topCat.icon } : undefined,
+    savingsRate,
+  }), [period, summary.total, settings.defaultCurrency, settings.showCents, onlyExpenses.length, topCat, savingsRate])
+
   return (
     <div className="flex flex-col min-h-full bg-base">
       {/* ─── Header ───────────────────────────── */}
@@ -177,15 +191,26 @@ export function ReportsPage() {
         <p className="text-xs uppercase tracking-widest mb-1" style={{ color: 'rgba(200,195,240,0.6)' }}>{format(new Date(), 'MMMM yyyy')}</p>
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-bold" style={{ color: '#f0eeff' }}>Reports</h1>
-          <button
-            onClick={handleExport}
-            disabled={exporting}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl tap text-xs font-semibold transition-opacity"
-            style={{ background: 'rgba(124,92,252,0.18)', border: '1px solid rgba(124,92,252,0.3)', color: '#c8c3f0', opacity: exporting ? 0.6 : 1 }}
-          >
-            <Download size={13} className={exporting ? 'animate-pulse' : ''} />
-            {exporting ? 'Exporting…' : 'Export XLSX'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setRecapOpen(true)}
+              disabled={summary.total <= 0}
+              className="flex items-center justify-center w-9 h-9 rounded-xl tap transition-opacity"
+              style={{ background: 'rgba(124,92,252,0.18)', border: '1px solid rgba(124,92,252,0.3)', color: '#c8c3f0', opacity: summary.total <= 0 ? 0.4 : 1 }}
+              title="Share recap"
+            >
+              <Share2 size={15} />
+            </button>
+            <button
+              onClick={handleExport}
+              disabled={exporting}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl tap text-xs font-semibold transition-opacity"
+              style={{ background: 'rgba(124,92,252,0.18)', border: '1px solid rgba(124,92,252,0.3)', color: '#c8c3f0', opacity: exporting ? 0.6 : 1 }}
+            >
+              <Download size={13} className={exporting ? 'animate-pulse' : ''} />
+              {exporting ? 'Exporting…' : 'Export XLSX'}
+            </button>
+          </div>
         </div>
 
         {/* Period tabs */}
@@ -213,10 +238,11 @@ export function ReportsPage() {
               className="flex items-center gap-2 px-3 py-2 rounded-xl tap text-sm font-semibold"
               style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.14)', color: 'rgba(240,238,255,0.9)' }}
             >
-              <span>
-                {source === 'all' ? '📊 All sources'
-                  : source === 'personal' ? '👤 Personal only'
-                  : `👥 ${groups.find(g => g.id === source)?.name ?? 'Group'}`}
+              <span className="flex items-center gap-1.5">
+                {source === 'all' ? <BarChart3 size={14} /> : source === 'personal' ? <User size={14} /> : <Users size={14} />}
+                {source === 'all' ? 'All sources'
+                  : source === 'personal' ? 'Personal only'
+                  : (groups.find(g => g.id === source)?.name ?? 'Group')}
               </span>
               <ChevronDown size={14} style={{ transform: sourceOpen ? 'rotate(180deg)' : undefined, transition: 'transform 0.2s' }} />
             </button>
@@ -226,20 +252,21 @@ export function ReportsPage() {
                 style={{ background: 'var(--bg-card)', border: '1px solid var(--border2)', boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}
               >
                 {([
-                  { id: 'all', label: '📊 All sources' },
-                  { id: 'personal', label: '👤 Personal only' },
-                  ...groups.filter(g => !g.archived).map(g => ({ id: g.id, label: `👥 ${g.name}` })),
-                ] as { id: string; label: string }[]).map((opt, i, arr) => (
+                  { id: 'all', label: 'All sources', icon: BarChart3 },
+                  { id: 'personal', label: 'Personal only', icon: User },
+                  ...groups.filter(g => !g.archived).map(g => ({ id: g.id, label: g.name, icon: Users })),
+                ] as { id: string; label: string; icon: LucideIcon }[]).map((opt, i, arr) => (
                   <button
                     key={opt.id}
                     onClick={() => { setSource(opt.id); setSourceOpen(false) }}
                     className={cn(
-                      'w-full text-left px-4 py-3 text-sm font-medium tap transition-colors',
+                      'w-full flex items-center gap-2 text-left px-4 py-3 text-sm font-medium tap transition-colors',
                       source === opt.id ? 'text-brand' : 'text-1',
                       i < arr.length - 1 ? 'border-b border-ui' : ''
                     )}
                     style={source === opt.id ? { background: 'rgba(124,92,252,0.1)' } : { background: 'var(--bg-card)' }}
                   >
+                    <opt.icon size={14} />
                     {opt.label}
                   </button>
                 ))}
@@ -273,7 +300,11 @@ export function ReportsPage() {
             <div className="flex flex-col gap-2.5">
               {savingsRate !== null && (
                 <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: savingsRate >= 20 ? 'rgba(0,200,150,0.08)' : savingsRate > 0 ? 'rgba(255,193,7,0.08)' : 'rgba(255,107,107,0.08)' }}>
-                  <span className="text-xl">{savingsRate >= 20 ? '🎯' : savingsRate > 0 ? '⚠️' : '🔴'}</span>
+                  {savingsRate >= 20
+                    ? <Target size={20} style={{ color: '#00c896' }} />
+                    : savingsRate > 0
+                      ? <AlertTriangle size={20} style={{ color: '#ffc107' }} />
+                      : <AlertCircle size={20} style={{ color: '#ff6b6b' }} />}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-1">
                       {savingsRate >= 20 ? `Saving ${savingsRate.toFixed(0)}% of income` : savingsRate > 0 ? `Only saving ${savingsRate.toFixed(0)}% — try to reach 20%` : 'Spending exceeds income'}
@@ -315,7 +346,7 @@ export function ReportsPage() {
                 if (!biggest) return null
                 return (
                   <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'rgba(255,107,107,0.07)' }}>
-                    <span className="text-xl">📈</span>
+                    <TrendingUp size={20} style={{ color: '#ff6b6b' }} />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-1">{biggest.name} up {biggest.change.toFixed(0)}% vs last month</p>
                       <p className="text-xs text-2">{fmt(biggest.value)} this month vs {fmt(lastMonthCategoryMap[biggest.catId ?? ''] ?? 0)} last month</p>
@@ -325,7 +356,7 @@ export function ReportsPage() {
               })()}
               {dowData[maxDowIdx].amount > 0 && (
                 <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'rgba(255,193,7,0.06)' }}>
-                  <span className="text-xl">📅</span>
+                  <CalendarDays size={20} style={{ color: '#ffc107' }} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-1">You spend most on {dowData[maxDowIdx].day}s</p>
                     <p className="text-xs text-2">Avg {fmt(dowData[maxDowIdx].amount / Math.ceil(dayCount / 7))} per {dowData[maxDowIdx].day}</p>
@@ -340,7 +371,7 @@ export function ReportsPage() {
                 const projected = dailyPace * daysInMonth
                 return (
                   <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'rgba(77,106,154,0.08)' }}>
-                    <span className="text-xl">🔮</span>
+                    <Wand2 size={20} style={{ color: '#4d6a9a' }} />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-1">Projected: {fmt(projected)} this month</p>
                       <p className="text-xs text-2">At {fmt(dailyPace)}/day pace · Day {today} of {daysInMonth}</p>
@@ -450,14 +481,14 @@ export function ReportsPage() {
             <p className="text-sm font-semibold text-1 mb-4">Weekday vs Weekend</p>
             <div className="flex gap-3">
               {[
-                { label: 'Weekdays', amount: weekdayTotal, icon: '💼', color: '#7c5cfc' },
-                { label: 'Weekends', amount: weekendTotal, icon: '🎉', color: '#ec4899' },
+                { label: 'Weekdays', amount: weekdayTotal, icon: Briefcase, color: '#7c5cfc' },
+                { label: 'Weekends', amount: weekendTotal, icon: Sun, color: '#ec4899' },
               ].map(item => {
                 const total = weekdayTotal + weekendTotal
                 const pct = total > 0 ? (item.amount / total) * 100 : 0
                 return (
                   <div key={item.label} className="flex-1 rounded-2xl p-3 text-center" style={{ background: `${item.color}10`, border: `1px solid ${item.color}25` }}>
-                    <div className="text-2xl mb-1">{item.icon}</div>
+                    <item.icon size={22} className="mb-1 mx-auto" style={{ color: item.color }} />
                     <p className="text-xs font-semibold text-2 mb-1">{item.label}</p>
                     <p className="text-base font-bold text-1">{fmt(item.amount)}</p>
                     <p className="text-[10px] font-semibold mt-0.5" style={{ color: item.color }}>{pct.toFixed(0)}%</p>
@@ -486,7 +517,7 @@ export function ReportsPage() {
               className="mt-3 flex items-center gap-2 px-3 py-2.5 rounded-2xl"
               style={{ background: yoyChange > 0 ? 'rgba(255,107,107,0.1)' : 'rgba(0,200,150,0.1)' }}
             >
-              <span className="text-xl">{yoyChange > 0 ? '📈' : '📉'}</span>
+              {yoyChange > 0 ? <TrendingUp size={20} className="text-expense" /> : <TrendingDown size={20} className="text-income" />}
               <p className="text-sm font-semibold" style={{ color: yoyChange > 0 ? 'var(--expense)' : 'var(--income)' }}>
                 {yoyChange > 0 ? '+' : ''}{yoyChange.toFixed(1)}% vs last {format(new Date(), 'MMMM yyyy')}
               </p>
@@ -506,7 +537,7 @@ export function ReportsPage() {
                 return (
                   <div key={p.name} className="flex items-center gap-3">
                     <div className="w-8 h-8 icon-circle text-sm shrink-0" style={{ backgroundColor: `${color}20`, borderRadius: '0.75rem', color }}>
-                      <span>💳</span>
+                      <PaymentMethodIcon method={p.method} size={15} />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex justify-between mb-1.5">
@@ -556,12 +587,14 @@ export function ReportsPage() {
 
         {expenses.length === 0 && (
           <div className="flex flex-col items-center justify-center py-16 text-center">
-            <div className="text-5xl mb-4">📊</div>
+            <BarChart2 size={40} className="mb-4 text-3" />
             <p className="text-base font-semibold text-1 mb-1">No data yet</p>
             <p className="text-sm text-2">Add some transactions to see reports.</p>
           </div>
         )}
       </div>
+
+      <RecapCard open={recapOpen} onClose={() => setRecapOpen(false)} data={recapData} />
     </div>
   )
 }

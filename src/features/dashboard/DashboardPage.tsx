@@ -1,11 +1,12 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, ArrowRight, ShieldCheck, HardDrive, ChevronDown, RefreshCw, CloudOff, Settings, Square, ShoppingCart, ListTodo, Bell, X, AlertTriangle } from 'lucide-react'
+import { Plus, ArrowRight, ShieldCheck, HardDrive, ChevronDown, RefreshCw, CloudOff, Settings, Square, ShoppingCart, ListTodo, Bell, X, AlertTriangle, Plane, Wallet, ClipboardList, Flame } from 'lucide-react'
 import logoSrc from '@/assets/SR.png'
 import { PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area, XAxis, Tooltip } from 'recharts'
 import { Modal } from '@/components/ui/Modal'
 import { ExpenseForm } from '@/features/expenses/ExpenseForm'
 import { ExpenseItem } from '@/features/expenses/ExpenseItem'
+import { useConfetti } from '@/components/ui/Confetti'
 import { useExpenseStore } from '@/store/useExpenseStore'
 import { useCategoryStore } from '@/store/useCategoryStore'
 import { useBudgetStore } from '@/store/useBudgetStore'
@@ -14,9 +15,10 @@ import { useSyncStore } from '@/store/useSyncStore'
 import { useTaskStore } from '@/store/useTaskStore'
 import { useGroupStore } from '@/store/useGroupStore'
 import { toast } from '@/components/ui/Toast'
-import { formatCurrency, getMonthRange, buildTrendData, summarizeExpenses, cn, groupExpensesToExpenses } from '@/core/utils'
+import { formatCurrency, getMonthRange, buildTrendData, summarizeExpenses, cn, groupExpensesToExpenses, computeLoggingStreak } from '@/core/utils'
 import { format, isToday, isTomorrow, isPast, subMonths } from 'date-fns'
 import { expenseQueries } from '@/db/queries'
+import { effectiveNextDate } from '@/services/recurringProcessor'
 import type { Expense, Task } from '@/core/types'
 
 function getGreeting() {
@@ -24,6 +26,21 @@ function getGreeting() {
   if (h < 12) return 'Good morning'
   if (h < 17) return 'Good afternoon'
   return 'Good evening'
+}
+
+// Only worth showing once a streak is actually a streak — a bare "1 day"
+// badge on every first-time visit reads as noise, not encouragement.
+function StreakBadge({ streak }: { streak: number }) {
+  if (streak < 2) return null
+  return (
+    <span
+      className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0"
+      style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}
+    >
+      <Flame size={11} />
+      {streak} day streak
+    </span>
+  )
 }
 
 const BUDGET_BANNER_KEY = 'budget-banner-dismissed'
@@ -40,10 +57,10 @@ export function DashboardPage() {
     localStorage.setItem(BUDGET_BANNER_KEY, format(new Date(), 'yyyy-MM'))
     setBudgetBannerDismissed(true)
   }
-  const { expenses, load, filter, setFilter } = useExpenseStore()
+  const { expenses, load, filter, setFilter, dataVersion } = useExpenseStore()
   const { categories } = useCategoryStore()
   const { budgets } = useBudgetStore()
-  const { settings } = useSettingsStore()
+  const { settings, updateSettings } = useSettingsStore()
   const { user: syncUser, enabled: syncEnabled, status: syncStatus, smartSync } = useSyncStore()
   const allTasks = useTaskStore(s => s.tasks)
   const { groups, groupExpenses } = useGroupStore()
@@ -66,17 +83,30 @@ export function DashboardPage() {
 
   useEffect(() => { load() }, [filter])
 
-  // Load 6-month range for trend chart — bounded range query on indexed `date` field (fast)
-  // Re-runs when current month expenses change so new entries appear in the trend
+  // Load 6-month range for trend chart + recent-transactions fallback — bounded range
+  // query on indexed `date` field (fast). Re-runs on every mutation (dataVersion),
+  // including the deferred delete finalize which doesn't otherwise touch `expenses`.
   useEffect(() => {
     const start = getMonthRange(subMonths(new Date(), 5)).start
     expenseQueries.getByRange(start, Date.now()).then(setAllExpenses)
-  }, [expenses])
+  }, [dataVersion])
 
   // Recurring expenses change infrequently — load once on mount, not on every expense change
   useEffect(() => {
     expenseQueries.getRecurring().then(setRecurringExpenses)
   }, [])
+
+  // Logging streak — celebrate the first time a milestone is reached, not on every render
+  const burst = useConfetti()
+  const streak = useMemo(() => computeLoggingStreak(allExpenses), [allExpenses])
+  useEffect(() => {
+    const milestone = [100, 60, 30, 14, 7, 3].find(m => streak >= m)
+    if (milestone && milestone > settings.lastCelebratedStreak) {
+      burst()
+      updateSettings({ lastCelebratedStreak: milestone })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [streak])
 
   const upcomingTasks = useMemo(() => {
     const now = Date.now()
@@ -144,10 +174,12 @@ export function DashboardPage() {
   const overallBudget = settings.enableBudgets ? budgets.find(b => !b.categoryId && b.period === 'monthly') : undefined
   const budgetPct = overallBudget ? Math.min((summary.total / overallBudget.amount) * 100, 100) : 0
 
-  // Recent 6 expenses (excluding income) — includes non-linked group spend entries
+  // Recent 6 expenses (excluding income) — always the latest activity overall (last 6
+  // months), not just the current calendar month, so a fresh month doesn't read as empty.
+  // Includes non-linked group spend entries.
   const recent = useMemo(() =>
-    [...expenses, ...groupSpendEntries].filter(e => e.type !== 'income').sort((a, b) => b.date - a.date).slice(0, 6),
-    [expenses, groupSpendEntries]
+    [...allExpenses, ...trendGroupEntries].filter(e => e.type !== 'income').sort((a, b) => b.date - a.date).slice(0, 6),
+    [allExpenses, trendGroupEntries]
   )
 
   const fmt = (v: number) => formatCurrency(v, settings.defaultCurrency, settings.showCents)
@@ -231,9 +263,12 @@ export function DashboardPage() {
 
           {/* Greeting */}
           <div className="mb-5">
-            <p className="text-xs mb-0.5" style={{ color: 'rgba(200,195,240,0.5)' }}>{format(new Date(), 'EEEE, MMM d')}</p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs mb-0.5" style={{ color: 'rgba(200,195,240,0.5)' }}>{format(new Date(), 'EEEE, MMM d')}</p>
+              <StreakBadge streak={streak} />
+            </div>
             <h1 className="text-xl font-bold leading-tight" style={{ color: '#f0eeff' }}>
-              {syncUser ? `${getGreeting()}, ${syncUser.name.split(' ')[0]} 👋 ` : `${getGreeting()} 👋 `}
+              {syncUser ? `${getGreeting()}, ${syncUser.name.split(' ')[0]} — ` : `${getGreeting()} — `}
               <span>Welcome back</span>
             </h1>
             <p className="text-xs mt-0.5" style={{ color: 'rgba(200,195,240,0.45)' }}>Your Monthly Expense Summary</p>
@@ -343,7 +378,7 @@ export function DashboardPage() {
             onClick={() => navigate('/settings')}
             style={{ background: 'rgba(124,92,252,0.12)', border: '1px solid rgba(124,92,252,0.25)' }}
           >
-            <span className="text-xl shrink-0">✈️</span>
+            <Plane size={18} className="shrink-0 text-brand" />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-1">
                 {settings.tripName || 'Trip mode'} · {settings.tripCurrency}
@@ -365,7 +400,7 @@ export function DashboardPage() {
             <AlertTriangle size={18} style={{ color: budgetPct >= 100 ? '#ff6b6b' : '#f59e0b', flexShrink: 0 }} />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-1">
-                {budgetPct >= 100 ? 'Budget exceeded!' : `Budget at ${budgetPct.toFixed(0)}%`}
+                {budgetPct >= 100 ? 'Budget exceeded' : `Budget at ${budgetPct.toFixed(0)}%`}
               </p>
               <p className="text-xs text-2">
                 {fmt(summary.total)} of {fmt(overallBudget.amount)} used this month
@@ -499,11 +534,11 @@ export function DashboardPage() {
           </div>
         )}
 
-        {/* Empty state */}
-        {expenses.length === 0 && (
+        {/* Empty state — only when there's truly no activity, this month or recently */}
+        {expenses.length === 0 && recent.length === 0 && (
           <div className="card flex flex-col items-center justify-center py-12 px-6 text-center">
-            <div className="text-5xl mb-4">💸</div>
-            <p className="text-lg font-bold text-1 mb-1">Start tracking!</p>
+            <Wallet size={36} className="mb-4 text-3" />
+            <p className="text-lg font-bold text-1 mb-1">Start tracking</p>
             <p className="text-sm text-2 mb-5 max-w-[260px] leading-relaxed">Add your first expense to see your financial picture.</p>
             <button onClick={() => setAddOpen(true)} className="btn btn-brand px-6 py-3 text-sm rounded-xl">
               <Plus size={15} /> Add Expense
@@ -526,7 +561,7 @@ function TodayTasksStrip({ tasks, onNavigate }: { tasks: Task[]; onNavigate: () 
     <div className="card p-4" style={{ borderLeft: '3px solid #f59e0b' }}>
       <div className="flex items-center justify-between mb-2.5">
         <div className="flex items-center gap-2">
-          <span className="text-sm">📋</span>
+          <ClipboardList size={14} className="text-1" />
           <span className="text-xs font-bold text-1">Today's Tasks</span>
           <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>
             {tasks.length}
@@ -628,9 +663,12 @@ function SubscriptionStrip({
   fmt: (v: number) => string
 }) {
   const navigate = useNavigate()
+  // Only surface subscriptions due within the next 2 weeks here — anything
+  // further out just adds noise to the dashboard; the full list always
+  // remains available on the Subscriptions page.
   const upcoming = expenses
-    .filter(e => e.recurrence?.nextDate)
-    .sort((a, b) => (a.recurrence!.nextDate! - b.recurrence!.nextDate!))
+    .filter(e => Math.ceil((effectiveNextDate(e) - Date.now()) / 86400000) <= 14)
+    .sort((a, b) => effectiveNextDate(a) - effectiveNextDate(b))
     .slice(0, 5)
 
   if (upcoming.length === 0) return null
@@ -649,8 +687,7 @@ function SubscriptionStrip({
       <div className="flex flex-col gap-2">
         {upcoming.map(e => {
           const cat = categories.find(c => c.id === e.categoryId)
-          const next = new Date(e.recurrence!.nextDate!)
-          const daysAway = Math.ceil((next.getTime() - Date.now()) / 86400000)
+          const daysAway = Math.ceil((effectiveNextDate(e) - Date.now()) / 86400000)
           return (
             <div key={e.id} className="flex items-center gap-3">
               <div

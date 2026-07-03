@@ -130,15 +130,6 @@ export const PAYMENT_METHOD_LABELS: Record<string, string> = {
   other: "Other",
 };
 
-export const PAYMENT_METHOD_ICONS: Record<string, string> = {
-  cash: "💵",
-  card: "💳",
-  upi: "📲",
-  bank_transfer: "🏦",
-  crypto: "🪙",
-  other: "💱",
-};
-
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: "dark",
   accentColor: "#7c5cfc",
@@ -157,16 +148,17 @@ export const DEFAULT_SETTINGS: AppSettings = {
   tripMode: false,
   tripCurrency: "USD",
   tripName: "",
+  lastCelebratedStreak: 0,
 };
 
 export const THEME_PRESETS = [
-  { value: "dark", label: "Dark", icon: "🌑" },
-  { value: "light", label: "Light", icon: "☀️" },
-  { value: "system", label: "System", icon: "📱" },
-  { value: "amoled", label: "AMOLED", icon: "⬛" },
-  { value: "midnight", label: "Midnight Blue", icon: "🌊" },
-  { value: "forest", label: "Forest", icon: "🌿" },
-  { value: "rose", label: "Rose Gold", icon: "🌹" },
+  { value: "dark", label: "Dark" },
+  { value: "light", label: "Light" },
+  { value: "system", label: "System" },
+  { value: "amoled", label: "AMOLED" },
+  { value: "midnight", label: "Midnight Blue" },
+  { value: "forest", label: "Forest" },
+  { value: "rose", label: "Rose Gold" },
 ] as const;
 
 export const ACCENT_COLORS = [

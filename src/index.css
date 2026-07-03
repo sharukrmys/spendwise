@@ -41,10 +41,14 @@
   }
   html {
     font-family: var(--font-sans);
+    height: 100%;
+    overflow: hidden;
   }
 
   :root {
     color-scheme: dark;
+    --sab: env(safe-area-inset-bottom, 0px);
+    --sat: env(safe-area-inset-top, 0px);
     --bg: #0a0914;
     --bg-card: #12101f;
     --bg-card2: #1a1829;
@@ -140,13 +144,15 @@
   body {
     background: var(--bg);
     color: var(--text);
-    min-height: 100dvh;
+    height: 100%;
+    overflow: hidden;
     -webkit-font-smoothing: antialiased;
     overscroll-behavior: none;
   }
 
   #root {
-    min-height: 100dvh;
+    height: 100%;
+    overflow: hidden;
   }
 
   ::-webkit-scrollbar {
@@ -338,13 +344,10 @@
 
   /* Safe area */
   .safe-bottom {
-    padding-bottom: max(env(safe-area-inset-bottom, 0px), 12px);
-  }
-  .nav-h {
-    height: 72px;
+    padding-bottom: max(var(--sab), 12px);
   }
   .page-bottom {
-    padding-bottom: 96px;
+    padding-bottom: 112px;
   }
   /* Status-bar safe area — use on page hero sections when there's no fixed topbar */
   .pt-safe {

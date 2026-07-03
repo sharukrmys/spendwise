@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Receipt, BarChart2, Plus, MoreHorizontal, Calendar, Users, ListTodo, Settings, Search, X } from 'lucide-react'
+import { LayoutDashboard, Receipt, BarChart2, Plus, MoreHorizontal, Calendar, Users, ListTodo, Settings, Search, X, RefreshCw } from 'lucide-react'
 import { cn } from '@/core/utils'
 import { useTaskStore } from '@/store/useTaskStore'
 
@@ -23,6 +23,7 @@ const moreItems = [
   { to: '/calendar', icon: Calendar, label: 'Calendar', color: '#06b6d4', bg: 'rgba(6,182,212,0.15)' },
   { to: '/tasks', icon: ListTodo, label: 'Tasks', color: '#22c55e', bg: 'rgba(34,197,94,0.15)' },
   { to: '/groups', icon: Users, label: 'Groups', color: '#a855f7', bg: 'rgba(168,85,247,0.15)' },
+  { to: '/subscriptions', icon: RefreshCw, label: 'Subscriptions', color: '#14b8a6', bg: 'rgba(20,184,166,0.15)' },
   { to: '/settings', icon: Settings, label: 'Settings', color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' },
 ]
 
@@ -59,7 +60,7 @@ export function BottomNav({ onAddExpense, onAddTask, onSearch }: BottomNavProps)
             className="w-full max-w-sm mx-2 rounded-2xl overflow-hidden"
             style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', boxShadow: '0 -8px 40px rgba(0,0,0,0.5)' }}
           >
-            <div className="grid grid-cols-4 p-3 gap-2">
+            <div className="grid grid-cols-3 p-3 gap-2">
               {moreItems.map(item => (
                 <button
                   key={item.to}
@@ -145,9 +146,15 @@ export function BottomNav({ onAddExpense, onAddTask, onSearch }: BottomNavProps)
         </div>
       )}
 
-      {/* ── Bottom bar ── */}
-      <div className="fixed bottom-0 inset-x-0 z-30 flex justify-center items-end pb-3 px-2 nav-h safe-bottom pointer-events-none">
-        <nav className="pointer-events-auto w-full max-w-sm glass rounded-2xl flex items-center" style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.06)', padding: '6px 4px' }}>
+      {/* ── Bottom bar ──
+          The safe-area reserve lives inside the pill's own bottom padding
+          (not as empty space below it), so the pill's background runs flush
+          to the true screen edge with no visible gap either way. */}
+      <div className="fixed bottom-0 inset-x-0 z-30 flex justify-center px-2 pointer-events-none">
+        <nav
+          className="pointer-events-auto w-full max-w-sm glass rounded-2xl flex items-center safe-bottom"
+          style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.06)', padding: '6px 4px' }}
+        >
 
           {/* Left links */}
           {mainLinks.map(({ to, icon: Icon, label }) => (

@@ -43,7 +43,7 @@ export function QuickAddPage() {
         tags: [],
         isRecurring: false,
       })
-      toast.success(type === 'income' ? 'Income added!' : 'Expense added!')
+      toast.success(type === 'income' ? 'Income added' : 'Expense added')
       setTimeout(() => navigate('/'), 600)
     } catch {
       toast.error('Failed to save')

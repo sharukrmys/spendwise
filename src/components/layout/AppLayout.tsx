@@ -24,8 +24,8 @@ export function AppLayout() {
   const activeGroup = onGroupPage && activeGroupId ? (groups.find(g => g.id === activeGroupId) ?? null) : null
 
   return (
-    <div className="min-h-dvh bg-base flex flex-col max-w-lg mx-auto relative">
-      <main className="flex-1 page-bottom overflow-y-auto">
+    <div className="fixed inset-0 bg-base flex flex-col max-w-lg mx-auto">
+      <main className="flex-1 min-h-0 page-bottom overflow-y-auto" style={{ overscrollBehavior: 'contain' }}>
         <Outlet />
       </main>
 

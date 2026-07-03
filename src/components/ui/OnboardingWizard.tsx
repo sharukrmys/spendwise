@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowRight, Check } from 'lucide-react'
+import { ArrowRight, Check, Wallet, CheckCircle2 } from 'lucide-react'
 import { useSettingsStore } from '@/store/useSettingsStore'
 import { useBudgetStore } from '@/store/useBudgetStore'
 import { CURRENCIES } from '@/core/constants'
@@ -71,7 +71,9 @@ export function OnboardingWizard() {
           >
             {step === 'welcome' && (
               <div className="flex flex-col items-center text-center gap-4">
-                <div className="text-6xl">👋</div>
+                <div className="w-16 h-16 rounded-2xl flex items-center justify-center" style={{ background: 'rgba(124,92,252,0.12)' }}>
+                  <Wallet size={30} className="text-brand" />
+                </div>
                 <h2 className="text-2xl font-bold text-1">Welcome to SpendWise</h2>
                 <p className="text-sm text-2 leading-relaxed max-w-xs">
                   Track your spending, plan purchases, and understand your finances — all offline, all private.
@@ -147,7 +149,7 @@ export function OnboardingWizard() {
                     Skip
                   </button>
                   <button onClick={finish} className="btn btn-brand flex-1 py-4 text-sm" disabled={saving}>
-                    {saving ? 'Saving…' : 'Done 🎉'}
+                    {saving ? 'Saving…' : 'Done'}
                   </button>
                 </div>
               </div>
@@ -155,8 +157,10 @@ export function OnboardingWizard() {
 
             {step === 'done' && (
               <div className="flex flex-col items-center text-center gap-4">
-                <div className="text-6xl">🎉</div>
-                <h2 className="text-xl font-bold text-1">You're all set!</h2>
+                <div className="w-16 h-16 rounded-2xl flex items-center justify-center" style={{ background: 'rgba(0,200,150,0.12)' }}>
+                  <CheckCircle2 size={30} style={{ color: '#00c896' }} />
+                </div>
+                <h2 className="text-xl font-bold text-1">You're all set</h2>
                 <p className="text-sm text-2">Add your first expense to get started.</p>
                 <button onClick={finish} className="btn btn-brand w-full py-4">
                   Start tracking <ArrowRight size={16} />
